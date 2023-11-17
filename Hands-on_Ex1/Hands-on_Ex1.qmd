@@ -1,0 +1,34 @@
+---
+title: "Hands-on Exercise 1: Geospatial Data Wrangling with R"
+---
+
+## Overview
+
+In this hands-on exercise, I learn how to import and wrangling geospatial data using appropriate R packages.
+
+## Getting Started!
+
+The code chunk below install and load sf and tidyverse packages into R environment.
+
+```{r}
+pacman::p_load(sf, tidyverse)
+
+```
+
+## Importing Geospatial Data
+
+### Importing polygon feature data
+
+```{r}
+
+mpsq <- st_read(dsn = "data/geospatial", layer="MP14_SUBZONE_WEB_PL")
+
+```
+
+We will next have to save this file as a qmd (in this case Hands-on_Ex1.qmd)
+
+Once done, save it \> click Render \> this will run our codes automatically. The beauty of this is that it teaches us how to create a reproducible data
+
+To update the path from homepage, will then need to go back to the \_quarto.yml doc to update. Can also go Build to "Render website"
+
+Sometimes we need to commit changes from time to time so we can track changes! Dont do it at the very end.
