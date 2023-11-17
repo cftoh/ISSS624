@@ -8,7 +8,7 @@ In this hands-on exercise, I learn how to import and wrangling geospatial data u
 
 ## Getting Started!
 
-The code chunk below install and load sf and tidyverse packages into R environment.
+The code chunk below install and load [sf](https://r-spatial.github.io/sf/) and tidyverse packages into R environment.
 
 ```{r}
 pacman::p_load(sf, tidyverse)
@@ -31,4 +31,4 @@ Once done, save it \> click Render \> this will run our codes automatically. The
 
 To update the path from homepage, will then need to go back to the \_quarto.yml doc to update. Can also go Build to "Render website"
 
-Sometimes we need to commit changes from time to time so we can track changes! Dont do it at the very end.
+Sometimes we need to commit changes from time to time so we can track changes! Don't do it at the very end.
