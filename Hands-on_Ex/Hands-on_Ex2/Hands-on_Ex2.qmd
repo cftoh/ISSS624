@@ -1,0 +1,29 @@
+---
+title: "Hands-on_Ex2"
+---
+
+This will be built upon the basic of R Programming, after setup
+
+\*\*useful to just type "/" then it will allow easier insert of code chunks (rather than having to type \`\`\`{r} all the time
+
+```{r}
+
+```
+
+Key R Package used is [**tmap**](https://cran.r-project.org/web/packages/tmap/) package in R, but the following will be used to:
+
+-   [**readr**](https://readr.tidyverse.org/) for importing delimited text file,
+
+-   [**tidyr**](https://tidyr.tidyverse.org/) for tidying data,
+
+-   [**dplyr**](https://dplyr.tidyverse.org/) for wrangling data and
+
+-   [**sf**](https://cran.r-project.org/web/packages/sf/) for handling geospatial data.
+
+**readr**, **tidyr** and **dplyr** are part of **tidyverse** package.
+
+To first install the package:
+
+```{r}
+pacman::p_load(sf, tmap, tidyverse)
+```
