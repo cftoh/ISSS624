@@ -260,3 +260,186 @@ tm_shape(mpsz_pop2020)+
 ```{r}
 summary(mpsz_pop2020$DEPENDENCY)
 ```
+
+With reference to the results above, we set break point at 0.60, 0.70, 0.80, and 0.90.
+
+In addition, we also need to include a minimum and maximum, which we set at 0 and 100. Our *breaks* vector is thus c(0, 0.60, 0.70, 0.80, 0.90, 1.00)
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY",
+          breaks = c(0, 0.60, 0.70, 0.80, 0.90, 1.00)) +
+  tm_borders(alpha = 0.5)
+```
+
+### Colour Scheme
+
+**tmap** supports colour ramps either defined by the user or a set of predefined colour ramps from the **RColorBrewer** package.
+
+To change the colour, we assign the preferred colour to *palette* argument of *tm_fill()* :
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY",
+          n = 6,
+          style = "quantile",
+          palette = "Blues") +
+  tm_borders(alpha = 0.5)
+```
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY",
+          style = "quantile",
+          palette = "-Greens") +
+  tm_borders(alpha = 0.5) 
+```
+
+Note we can add "-" prefix to reverse the color shading.
+
+### Map Layouts
+
+-    combination of all map elements into a cohensive map
+
+#### Map Legend
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY", 
+          style = "jenks", 
+          palette = "Blues", 
+          legend.hist = TRUE, 
+          legend.is.portrait = TRUE,
+          legend.hist.z = 0.1) +
+  tm_layout(main.title = "Distribution of Dependency Ratio by planning subzone \n(Jenks classification)",
+            main.title.position = "center",
+            main.title.size = 1,
+            legend.height = 0.45, 
+            legend.width = 0.35,
+            legend.outside = FALSE,
+            legend.position = c("right", "bottom"),
+            frame = FALSE) +
+  tm_borders(alpha = 0.5)
+```
+
+#### Map style
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY", 
+          style = "quantile", 
+          palette = "-Greens") +
+  tm_borders(alpha = 0.5) +
+  tmap_style("classic")
+```
+
+#### Cartographic Furniture
+
+To draw other map furniture such as compass, scale bar and grid lines, using tm_compass(), tm_scale_bar(), tm_grid():
+
+```{r}
+tm_shape(mpsz_pop2020)+
+  tm_fill("DEPENDENCY", 
+          style = "quantile", 
+          palette = "Blues",
+          title = "No. of persons") +
+  tm_layout(main.title = "Distribution of Dependency Ratio \nby planning subzone",
+            main.title.position = "center",
+            main.title.size = 1.2,
+            legend.height = 0.45, 
+            legend.width = 0.35,
+            frame = TRUE) +
+  tm_borders(alpha = 0.5) +
+  tm_compass(type="8star", size = 2) +
+  tm_scale_bar(width = 0.15) +
+  tm_grid(lwd = 0.1, alpha = 0.2) +
+  tm_credits("Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\n and Population data from Department of Statistics DOS", 
+             position = c("left", "bottom"))
+```
+
+TO RESET!
+
+```{r}
+tmap_style("white")
+```
+
+### Drawing Small Multiple Choropleth Maps
+
+The facet maps enable the visualisation of how spatial relationships change with respect to another variable, such as time.
+
+In **tmap**, small multiple maps can be plotted in three ways:
+
+1.  by assigning multiple values to at least one of the asthetic arguments (in this example using ***ncols*** in **tm_fill())**
+
+    ```{r}
+    tm_shape(mpsz_pop2020)+
+      tm_fill(c("YOUNG", "AGED"),
+              style = "equal", 
+              palette = "Blues") +
+      tm_layout(legend.position = c("right", "bottom")) +
+      tm_borders(alpha = 0.5) +
+      tmap_style("white")
+    ```
+
+    We can also use aesthetic arguments in each:
+
+    ```{r}
+    tm_shape(mpsz_pop2020)+ 
+      tm_polygons(c("DEPENDENCY","AGED"),
+              style = c("equal", "quantile"), 
+              palette = list("Blues","Greens")) +
+      tm_layout(legend.position = c("right", "bottom"))
+    ```
+
+2.  by defining a group-by variable in *tm_facets()*
+
+    ```{r}
+    tm_shape(mpsz_pop2020) +
+      tm_fill("DEPENDENCY",
+              style = "quantile",
+              palette = "Blues",
+              thres.poly = 0) + 
+      tm_facets(by="REGION_N", 
+                free.coords=TRUE, 
+                drop.shapes=TRUE) +
+      tm_layout(legend.show = FALSE,
+                title.position = c("center", "center"), 
+                title.size = 20) +
+      tm_borders(alpha = 0.5)
+    ```
+
+3.  by creating multiple stand-alone maps with *tmap_arrange()*
+
+    ```{r}
+    youngmap <- tm_shape(mpsz_pop2020)+ 
+      tm_polygons("YOUNG", 
+                  style = "quantile", 
+                  palette = "Blues")
+
+    agedmap <- tm_shape(mpsz_pop2020)+ 
+      tm_polygons("AGED", 
+                  style = "quantile", 
+                  palette = "Blues")
+
+    tmap_arrange(youngmap, agedmap, asp=1, ncol=2)
+    ```
+
+### Mappping Spatial Object Meeting a Selection Criterion
+
+Can also use selection funtion to map spatial objects meeting the selection criterion, rather than having multiple small maps.
+
+```{r}
+tm_shape(mpsz_pop2020[mpsz_pop2020$REGION_N=="CENTRAL REGION", ])+
+  tm_fill("DEPENDENCY", 
+          style = "quantile", 
+          palette = "Blues", 
+          legend.hist = TRUE, 
+          legend.is.portrait = TRUE,
+          legend.hist.z = 0.1) +
+  tm_layout(legend.outside = TRUE,
+            legend.height = 0.45, 
+            legend.width = 5.0,
+            legend.position = c("right", "bottom"),
+            frame = FALSE) +
+  tm_borders(alpha = 0.5)
+```
