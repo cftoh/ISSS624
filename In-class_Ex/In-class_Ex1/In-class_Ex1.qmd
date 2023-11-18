@@ -1,3 +1,91 @@
 ---
 title: "In-class_Ex1"
+date: "18 November 2023"
+date-modified:  "last-modified"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
 ---
+
+## Getting Started
+
+Typical ways of writing R Script:
+
+library(tmap)
+
+library(sf)
+
+library(tidyverse)
+
+But for Quardo, we use R code per below, the code chunk below load the following packages:
+
+1.  tmap: for thematic mapping
+2.  sf: for geospatial data handling
+3.  tidyverse: for non-spatial data handling
+
+```{r}
+pacman::p_load(tmap,sf,tidyverse)
+```
+
+## Importing the OD Data
+
+First we import the data set downloaded from LTA DataMall by using read_csv of readr package.
+
+```{r}
+odbus <- read_csv("data/aspatial/origin_destination_bus_202308.csv")
+```
+
+A quick check of odbus table data
+
+Convert the data into factor, the factor is data set unqiue to R. in R we can ste factor to split up and do sorting etc.
+
+```{r}
+odbus$ORIGIN_PT_CODE <- as.factor(odbus$ORIGIN_PT_CODE)
+odbus$DESTINATION_PT_CODE <- as.factor(odbus$DESTINATION_PT_CODE)
+#This changes the data type from chr to factor in the data field
+```
+
+Next
+
+```{r}
+origtrip_7_9 <- odbus %>% #this is pipe which allows us to write functions incrementally
+  filter(DAY_TYPE == "WEEKDAY") %>% 
+  filter(TIME_PER_HOUR >=7 & TIME_PER_HOUR <=9) %>%
+  group_by(ORIGIN_PT_CODE) %>% #this allow me to extract all those trips generated
+  summarize(TRIPS = sum(TOTAL_TRIPS)) #derives new field to allow me to do the aggregation
+```
+
+If not sure about using %\>%, we do one by one, step by step. **(to be completed)**
+
+```{r}
+#origtrip_7_9 <- filter(DAY_TYPE == "WEEKDAY") 
+```
+
+Next, use st_read of sf package to read and handle spatial data:
+
+```{r}
+busstop <- st_read(dsn="data/geospatial",layer="BusStop") %>% 
+  st_transform(crs = 3414)
+  
+  #dsn is to set to particular path, then layer is for the specific file
+```
+
+#geometry is like the block, we can see the coordinates for each of busstop on geometry, binary large object. It allows you to store the list, as x and y coordinates.
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial",layer="MPSZ-2019") %>% 
+  st_transform(crs = 3414)
+
+mpsz
+```
+
+Although all are geometric type, but each will be different data. The multipolygon (for MPSZ) - in decimal degree (WGS84), while for Busstop it is different geometry system (SVY21).
+
+crs is coordinate reference code of singapore, 3414. Once transform it, the geometry will change, it will change from decimal degree to meter.
+
+Convert the data for reason of making them into same coordinate system.
+
+Bus Stop gives bus stop code and the position. Just now the origin we didnt have origin, only bus code. Now we have the position we can join both data set together.
