@@ -61,7 +61,7 @@ origin7_9 <- odbus %>% #this is pipe which allows us to write functions incremen
 If not sure about using %\>%, we do one by one, step by step.
 
 ```{r}
-kable(head(origin7_9))
+#kable(head(origin7_9))
 ```
 
 Next save the output in rds format for future used.
