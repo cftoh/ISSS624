@@ -40,7 +40,7 @@ odbus <- read_csv("data/aspatial/origin_destination_bus_202308.csv")
 
 A quick check of odbus table data
 
-Convert the data into factor, the factor is data set unqiue to R. in R we can ste factor to split up and do sorting etc.
+Convert the data into factor, the factor is data set unique to R. in R we can ste factor to split up and do sorting etc.
 
 ```{r}
 odbus$ORIGIN_PT_CODE <- as.factor(odbus$ORIGIN_PT_CODE)
@@ -51,20 +51,38 @@ odbus$DESTINATION_PT_CODE <- as.factor(odbus$DESTINATION_PT_CODE)
 Next
 
 ```{r}
-origtrip_7_9 <- odbus %>% #this is pipe which allows us to write functions incrementally
+origin7_9 <- odbus %>% #this is pipe which allows us to write functions incrementally
   filter(DAY_TYPE == "WEEKDAY") %>% 
   filter(TIME_PER_HOUR >=7 & TIME_PER_HOUR <=9) %>%
   group_by(ORIGIN_PT_CODE) %>% #this allow me to extract all those trips generated
   summarize(TRIPS = sum(TOTAL_TRIPS)) #derives new field to allow me to do the aggregation
 ```
 
-If not sure about using %\>%, we do one by one, step by step. **(to be completed)**
+If not sure about using %\>%, we do one by one, step by step.
 
 ```{r}
-#origtrip_7_9 <- filter(DAY_TYPE == "WEEKDAY") 
+kable(head(origin7_9))
 ```
 
-Next, use st_read of sf package to read and handle spatial data:
+Next save the output in rds format for future used.
+
+```{r}
+write_rds(origin7_9, "data/rds/origin7_9.rds")
+```
+
+To import into R environment:
+
+```{r}
+origin7_9 <- read_rds("data/rds/origin7_9.rds")
+```
+
+## Working with Geospatial Data
+
+To import two shapefile into RStudio:
+
+1.  **BusStop: This data provides the location of bus stop as at last quarter of 2022.**
+
+Use st_read of sf package to read and handle spatial data:
 
 ```{r}
 busstop <- st_read(dsn="data/geospatial",layer="BusStop") %>% 
@@ -72,6 +90,12 @@ busstop <- st_read(dsn="data/geospatial",layer="BusStop") %>%
   
   #dsn is to set to particular path, then layer is for the specific file
 ```
+
+```{r}
+glimpse(busstop) #to look at busstop sf tibble data frame 
+```
+
+2.  **MPSZ-2019: This data provides the sub-zone boundary of URA Master Plan 2019.**
 
 #geometry is like the block, we can see the coordinates for each of busstop on geometry, binary large object. It allows you to store the list, as x and y coordinates.
 
@@ -82,10 +106,90 @@ mpsz <- st_read(dsn="data/geospatial",layer="MPSZ-2019") %>%
 mpsz
 ```
 
+```{r}
+glimpse(mpsz)
+```
+
 Although all are geometric type, but each will be different data. The multipolygon (for MPSZ) - in decimal degree (WGS84), while for Busstop it is different geometry system (SVY21).
 
-crs is coordinate reference code of singapore, 3414. Once transform it, the geometry will change, it will change from decimal degree to meter.
+CRS is coordinate reference code of singapore, 3414. Once transform it, the geometry will change, it will change from decimal degree to meter.
 
 Convert the data for reason of making them into same coordinate system.
 
 Bus Stop gives bus stop code and the position. Just now the origin we didnt have origin, only bus code. Now we have the position we can join both data set together.
+
+## Geospatial data wrangling
+
+Combine the two data sets:
+
+```{r}
+busstop_mpsz <- st_intersection(busstop, mpsz) %>%
+  select(BUS_STOP_N, SUBZONE_C) %>%
+  st_drop_geometry()
+```
+
+-   `st_intersection()` is used to perform point and polygon overly and the output will be in point sf object.
+
+-   `select()` of dplyr package is then use to retain only BUS_STOP_N and SUBZONE_C in the busstop_mpsz sf data frame.
+
+-   five bus stops are excluded in the resultant data frame because they are outside of Singapore boundary.
+
+GOOD HABIT TO SAVE OUTPUT INTO RDS FORMAT before moving to next step:
+
+```{r}
+write_rds(busstop_mpsz, "data/rds/busstop_mpsz.csv")  
+```
+
+```{r}
+origin_data <- left_join(origin7_9 , busstop_mpsz,
+            by = c("ORIGIN_PT_CODE" = "BUS_STOP_N")) %>%
+  rename(ORIGIN_BS = ORIGIN_PT_CODE,
+         ORIGIN_SZ = SUBZONE_C)
+```
+
+next we check (data sanity) if any duplicating records:
+
+```{r}
+duplicate <- origin_data %>%
+  group_by_all() %>%
+  filter(n()>1) %>%
+  ungroup()
+```
+
+If any duplicate, use the following to retain only the unique value:
+
+```{r}
+origin_data <- unique(origin_data)
+```
+
+Next, update od_data data frame with the planning subzone codes.
+
+```{r}
+mpsz_origtrip <- left_join(mpsz, 
+                           origin_data,
+                           by = c("SUBZONE_C" = "ORIGIN_SZ"))
+```
+
+## Choropleth Visualisation
+
+Preparing a choropleth map showing the distribution of passenger trips at planning sub-zone level:
+
+```{r}
+tm_shape(mpsz_origtrip)+
+  tm_fill("TRIPS", 
+          style = "quantile", 
+          palette = "Greens",
+          title = "Passenger trips") +
+  tm_layout(main.title = "Passenger trips generated at planning sub-zone level",
+            main.title.position = "center",
+            main.title.size = 1.2,
+            legend.height = 0.45, 
+            legend.width = 0.35,
+            frame = TRUE) +
+  tm_borders(alpha = 0.3) +
+  tm_compass(type="8star", size = 2) +
+  tm_scale_bar() +
+  tm_grid(alpha =0.2) +
+  tm_credits("Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\n and Population data from Department of Statistics DOS", 
+             position = c("left", "bottom"))
+```
