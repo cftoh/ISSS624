@@ -1,0 +1,528 @@
+---
+title: "Hands-on Exercise 5: Local Measures of Spatial Autocorrelation"
+date: "21 November 2023"
+date-modified:  "last-modified"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
+---
+
+To compute Local Measure of Spatial Autocorrelation (GLSA) by using **spdep** package. Learning Objectives similar to HOE 4, only this is for Local Measure of Spatial Autocorrelation.
+
+```{r}
+pacman::p_load(sf, spdep, tmap, tidyverse)
+```
+
+```{r}
+#Hunan province administrative boundary layer at county level. This is a geospatial data set in ESRI shapefile format.
+hunan <- st_read(dsn = "data/geospatial", layer = "Hunan")
+```
+
+```{r}
+#Hunan_2012.csv: This csv file contains selected Hunan’s local development indicators in 2012.
+hunan2012 <- read_csv("data/aspatial/Hunan_2012.csv")
+```
+
+```{r}
+#Relational Join
+hunan <- left_join(hunan,hunan2012) %>%
+  select(1:4, 7, 15)
+```
+
+```{r}
+#To visualise the RDI
+equal <- tm_shape(hunan) + tm_fill("GDPPC", n=5, style = "equal") + tm_borders(alpha = 0.5) + tm_layout(main.title = "Equal Interval Classification")
+
+quantile <- tm_shape(hunan) + tm_fill("GDPPC", n=5, style = "quantile") +tm_borders(alpha=0.5) + tm_layout(main.title = "Equal Quantile Classification")
+
+tmap_arrange(equal, quantile, asp=1, ncol=2)
+
+```
+
+## Global Spatial Autocorrelation
+
+```{r}
+#to compute Contiguity Spatial Weights
+wm_q <- poly2nb(hunan, queen=TRUE) #output is nb datatype
+summary(wm_q)
+```
+
+```{r}
+#Row-standarised weights Matrix
+rswm_q <- nb2listw(wm_q,style="W",zero.policy = TRUE)
+rswm_q
+```
+
+```{r}
+#Global Spatial Autocorrelation: Moran’s I
+#Maron’s I test
+moran.test(hunan$GDPPC, 
+           listw=rswm_q, 
+           zero.policy = TRUE, 
+           na.action=na.omit)
+```
+
+```{r}
+#Computing Monte Carlo Moran’s I
+set.seed(1234)
+bperm= moran.mc(hunan$GDPPC, 
+                listw=rswm_q, 
+                nsim=999, 
+                zero.policy = TRUE, 
+                na.action=na.omit)
+bperm
+```
+
+```{r}
+#Visualising Monte Carlo Moran’s I
+mean(bperm$res[1:999])
+var(bperm$res[1:999])
+summary(bperm$res[1:999])
+
+hist(bperm$res, 
+     freq=TRUE, 
+     breaks=20, 
+     xlab="Simulated Moran's I")
+abline(v=0, 
+       col="yellow")
+
+```
+
+```{r}
+#Global Spatial Autocorrelation: Geary’s
+#Geary’s C test
+geary.test(hunan$GDPPC, listw=rswm_q)
+```
+
+```{r}
+#Computing Monte Carlo Geary’s C
+set.seed(1234)
+bperm=geary.mc(hunan$GDPPC, 
+               listw=rswm_q, 
+               nsim=999)
+bperm
+```
+
+```{r}
+#Visualising the Monte Carlo Geary’s C
+mean(bperm$res[1:999])
+var(bperm$res[1:999])
+summary(bperm$res[1:999])
+
+hist(bperm$res, 
+     freq=TRUE, 
+     breaks=20, 
+     xlab="Simulated Geary c")
+abline(v=1, 
+       col="green")
+
+```
+
+```{r}
+#Spatial Correlogram
+#Compute Moran’s I correlogram
+MI_corr <- sp.correlogram(wm_q, 
+                          hunan$GDPPC, 
+                          order=6, 
+                          method="I", 
+                          style="W")
+plot(MI_corr)
+```
+
+```{r}
+print(MI_corr)
+```
+
+```{r}
+#Compute Geary’s C correlogram and plot
+GC_corr <- sp.correlogram(wm_q, 
+                          hunan$GDPPC, 
+                          order=6, 
+                          method="C", 
+                          style="W")
+plot(GC_corr)
+```
+
+```{r}
+print(GC_corr)
+```
+
+## Cluster and Outlier Analysis
+
+**Local Indicators of Spatial Association or LISA** are statistics that evaluate the existence of clusters in the spatial arrangement of a given variable.
+
+For instance if we are studying cancer rates among census tracts in a given city local clusters in the rates mean that there are areas that have higher or lower rates than is to be expected by chance alone; that is, the values occurring are above or below those of a random distribution in space.
+
+Learning objective: to apply appropriate Local Indicators for Spatial Association (LISA), especially local Moran\'I to detect cluster and/or outlier from GDP per capita 2012 of Hunan Province, PRC.
+
+### Computing local Moran\'s I
+
+The [*localmoran()*](https://r-spatial.github.io/spdep/reference/localmoran.html) function of **spdep** will be used. It computes *Ii* values, given a set of *zi* values and a listw object providing neighbour weighting information for the polygon associated with the zi values.
+
+```{r}
+#to compute local Moran’s I of GDPPC2012 at the county level.
+fips <- order(hunan$County)
+localMI <- localmoran(hunan$GDPPC, rswm_q)
+head(localMI)
+```
+
+*localmoran()* function returns a matrix of values whose columns are:
+
+-   Ii: the local Moran\'s I statistics
+
+-   E.Ii: the expectation of local moran statistic under the randomisation hypothesis
+
+-   Var.Ii: the variance of local moran statistic under the randomisation hypothesis
+
+-   Z.Ii:the standard deviate of local moran statistic
+
+-   Pr(): the p-value of local moran statistic
+
+To list the content of the local Moran matrix derived by using [*printCoefmat()*](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/printCoefmat).
+
+```{r}
+printCoefmat(data.frame(
+  localMI[fips,], 
+  row.names=hunan$County[fips]),
+  check.names=FALSE)
+```
+
+#### Mapping the local Moran\'s I
+
+Before mapping, append the local Moran\'s I dataframe (i.e. localMI) onto hunan SpatialPolygonDataFrame. The out SpatialPolygonDataFrame is called *hunan.localMI*.
+
+```{r}
+hunan.localMI <- cbind(hunan,localMI) %>%
+  rename(Pr.Ii = Pr.z....E.Ii..)
+```
+
+#### Mapping local Moran\'s I values
+
+Using choropleth mapping functions of **tmap** package, we can plot the local Moran\'s I values by:
+
+```{r}
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty",
+          palette = "RdBu",
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+```
+
+#### Mapping local Moran\'s I p-values
+
+The choropleth shows there is evidence for both positive and negative Ii
+values. However, it is useful to consider the p-values for each of
+these values, as consider above.
+
+To produce a choropleth map of Moran\'s I p-values by using functions of **tmap** package:
+
+```{r}
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.Ii", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Greens", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+```
+
+#### Mapping both local Moran\'s I values and p-values
+
+To plot both the local Moran\'s I values map and its corresponding p-values map next to each other.
+
+```{r}
+localMI.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty", 
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+
+pvalue.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.Ii", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Greens", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(localMI.map, pvalue.map, asp=1, ncol=2)
+```
+
+## Creating a LISA Cluster Map
+
+The LISA Cluster Map shows the signicant locations color coded by type
+of spatial autocorrelation. The first step before we can generate the
+LISA cluster map is to plot the Moran scatterplot.
+
+```{r}
+nci <- moran.plot(hunan$GDPPC, rswm_q,
+                  labels=as.character(hunan$County), 
+                  xlab="GDPPC 2012", 
+                  ylab="Spatially Lag GDPPC 2012")
+```
+
+Notice that the plot is split in 4 quadrants. The top right corner
+belongs to areas that have high GDPPC and are surrounded by other areas that have the average level of GDPPC.
+
+### Plotting Moran scatterplot with standardised variable
+
+```{r}
+# scale() to centers and scales the variable.
+# centering is done by subtracting the mean (omitting NAs) the corresponding columns, and scaling is done by dividing the (centered) variable by their standard deviations.
+hunan$Z.GDPPC <- scale(hunan$GDPPC) %>% 
+  as.vector 
+#The as.vector() added to the end is to make sure that the data type we get out of this is a vector, that map neatly into out dataframe.
+```
+
+```{r}
+#to plot the Moran scatterplot again 
+nci2 <- moran.plot(hunan$Z.GDPPC, rswm_q,
+                   labels=as.character(hunan$County),
+                   xlab="z-GDPPC 2012", 
+                   ylab="Spatially Lag z-GDPPC 2012")
+```
+
+### Preparing LISA map classes
+
+```{r}
+#steps to prepare a LISA cluster map.
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+
+#Next, derives the spatially lagged variable of interest (i.e. GDPPC) and centers the spatially lagged variable around its mean.
+hunan$lag_GDPPC <- lag.listw(rswm_q, hunan$GDPPC)
+DV <- hunan$lag_GDPPC - mean(hunan$lag_GDPPC) 
+
+#Next, centering the local Moran’s around the mean.
+LM_I <- localMI[,1] - mean(localMI[,1])  
+
+#Next, we will set a statistical significance level for the local Moran.
+signif <- 0.05     
+
+#These four command lines define the low-low (1), low-high (2), high-low (3) and high-high (4) categories.
+quadrant[DV <0 & LM_I>0] <- 1
+quadrant[DV >0 & LM_I<0] <- 2
+quadrant[DV <0 & LM_I<0] <- 3  
+quadrant[DV >0 & LM_I>0] <- 4      
+
+#Lastly, places non-significant Moran in the category 0.
+quadrant[localMI[,5]>signif] <- 0
+```
+
+All the steps above can be combinef into one single code chunk as shown below:
+
+```{r}
+quadrant <- vector(mode="numeric",length=nrow(localMI))
+hunan$lag_GDPPC <- lag.listw(rswm_q, hunan$GDPPC)
+DV <- hunan$lag_GDPPC - mean(hunan$lag_GDPPC)     
+LM_I <- localMI[,1]   
+signif <- 0.05       
+quadrant[DV <0 & LM_I>0] <- 1
+quadrant[DV >0 & LM_I<0] <- 2
+quadrant[DV <0 & LM_I<0] <- 3  
+quadrant[DV >0 & LM_I>0] <- 4    
+quadrant[localMI[,5]>signif] <- 0
+```
+
+### Plotting LISA map
+
+```{r}
+hunan.localMI$quadrant <- quadrant
+colors <- c("#ffffff", "#2c7bb6", "#abd9e9", "#fdae61", "#d7191c")
+clusters <- c("insignificant", "low-low", "low-high", "high-low", "high-high")
+
+tm_shape(hunan.localMI) +
+  tm_fill(col = "quadrant", 
+          style = "cat", 
+          palette = colors[c(sort(unique(quadrant)))+1], 
+          labels = clusters[c(sort(unique(quadrant)))+1],
+          popup.vars = c("")) +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha=0.5)
+```
+
+For effective interpretation, it is better to plot both the local
+Moran\'s I values map and its corresponding p-values map next to each
+other.
+
+```{r}
+gdppc <- qtm(hunan, "GDPPC")
+
+hunan.localMI$quadrant <- quadrant
+colors <- c("#ffffff", "#2c7bb6", "#abd9e9", "#fdae61", "#d7191c")
+clusters <- c("insignificant", "low-low", "low-high", "high-low", "high-high")
+
+LISAmap <- tm_shape(hunan.localMI) +
+  tm_fill(col = "quadrant", 
+          style = "cat", 
+          palette = colors[c(sort(unique(quadrant)))+1], 
+          labels = clusters[c(sort(unique(quadrant)))+1],
+          popup.vars = c("")) +
+  tm_view(set.zoom.limits = c(11,17)) +
+  tm_borders(alpha=0.5)
+
+tmap_arrange(gdppc, LISAmap, 
+             asp=1, ncol=2)
+```
+
+## Hot Spot and Cold Spot Area Analysis
+
+Beside detecting cluster and outliers, localised spatial statistics can be also used to detect hot spot and/or cold spot areas.
+
+The term \'hot spot\' has been used generically across disciplines to describe a region or value that is higher relative to its surroundings (Lepers et al 2005, Aben et al 2012, Isobe et al 2015).
+
+### Getis and Ord\'s G-Statistics
+
+An alternative spatial statistics to detect spatial anomalies is the
+Getis and Ord\'s G-statistics (Getis and Ord, 1972; Ord and Getis, 1995).
+It looks at neighbours within a defined proximity to identify where
+either high or low values clutser spatially.
+
+Here, statistically significant hot-spots are recognised as areas of high values where other areas within a neighbourhood range also share high values too.
+
+The analysis consists of three steps:
+
+1.  Deriving spatial weight matrix
+2.  Computing Gi statistics
+3.  Mapping Gi statistics
+
+### Deriving distance-based weight matrix (similiar to HOE3)
+
+First, we need to define a new set of neighbours. Whist the spatial autocorrelation considered units which shared borders, for Getis-Ord we are defining neighbours based on distance.
+
+There are two type of distance-based proximity matrix, they are:
+
+-   fixed distance weight matrix; and
+
+-   adaptive distance weight matrix.
+
+#### Deriving the centroid
+
+We will need points to associate with each polygon before we can make our connectivity graph. It will be a little more complicated than just running *st_centroid()* on the sf object: **us.bound**. We need the coordinates in a separate data frame for this to work.
+
+```{r}
+longitude <- map_dbl(hunan$geometry, ~st_centroid(.x)[[1]])
+```
+
+```{r}
+latitude <- map_dbl(hunan$geometry, ~st_centroid(.x)[[2]])
+```
+
+```{r}
+# cbind to put longitude and latitude into the same object
+coords <- cbind(longitude, latitude)
+```
+
+#### Determine the cut-off distance
+
+Firstly, we need to determine the upper limit for distance band:
+
+```{r}
+#coords <- coordinates(hunan)
+k1 <- knn2nb(knearneigh(coords)) #Convert the knn object (matrix with the indices of points belonging to the set of the k nearest neighbours of each other) returned by knearneigh() into a neighbours list of class nb with a list of integer vectors containing neighbour region number ids
+
+k1dists <- unlist(nbdists(k1, coords, longlat = TRUE))
+summary(k1dists) #Return the length of neighbour relationship edges and unlist (remove list structure) it
+```
+
+```{r}
+#compute the distance weight matrix
+wm_d62 <- dnearneigh(coords, 0, 62, longlat = TRUE)
+wm_d62
+
+```
+
+```{r}
+#convert the nb object into spatial weights object
+wm62_lw <- nb2listw(wm_d62, style = 'B')
+summary(wm62_lw)
+#The output spatial weights object is called wm62_lw.
+```
+
+### Computing adaptive distance weight matrix
+
+```{r}
+#control the numbers of neighbours directly using k-nearest neighbours
+knn <- knn2nb(knearneigh(coords, k=8))
+knn
+```
+
+```{r}
+# to convert the nb object into spatial weights object.
+knn_lw <- nb2listw(knn, style = 'B')
+summary(knn_lw)
+```
+
+## Computing Gi statistics
+
+### Gi statistics using fixed distance
+
+```{r}
+fips <- order(hunan$County)
+gi.fixed <- localG(hunan$GDPPC, wm62_lw)
+gi.fixed
+```
+
+The output of localG() is a vector of G or Gstar values, with attributes \"gstari\" set to TRUE or FALSE, \"call\" set to the function call, and class \"localG\".
+
+The Gi statistics is represented as a Z-score. Greater values represent a greater intensity of clustering and the direction (positive or negative) indicates high or low clusters.
+
+To join the Gi values to their corresponding hunan sf data frame:
+
+```{r}
+hunan.gi <- cbind(hunan, as.matrix(gi.fixed)) %>%
+  rename(gstat_fixed = as.matrix.gi.fixed.)
+```
+
+In fact, the code chunk above performs **three tasks.**
+
+First, it convert the output vector (i.e. *gi.fixed*) into r matrix object by using *as.matrix()*.
+
+Next, *cbind()* is used to join hunan\@data and *gi.fixed* matrix to produce a new SpatialPolygonDataFrame called *hunan.gi*.
+
+Lastly, the field name of the gi values is renamed to *gstat_fixed* by using *rename()*.
+
+### Mapping Gi values with fixed distance weights
+
+```{r}
+# to map the Gi values derived using fixed distance weight matrix.
+gdppc <- qtm(hunan, "GDPPC")
+
+Gimap <-tm_shape(hunan.gi) +
+  tm_fill(col = "gstat_fixed", 
+          style = "pretty",
+          palette="-RdBu",
+          title = "local Gi") +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(gdppc, Gimap, asp=1, ncol=2)
+```
+
+### Gi statistics using adaptive distance
+
+```{r}
+fips <- order(hunan$County)
+gi.adaptive <- localG(hunan$GDPPC, knn_lw)
+hunan.gi <- cbind(hunan, as.matrix(gi.adaptive)) %>%
+  rename(gstat_adaptive = as.matrix.gi.adaptive.)
+```
+
+### Mapping Gi values with adaptive distance weights
+
+```{r}
+#map the Gi values derived using fixed distance weight matrix.
+gdppc<- qtm(hunan, "GDPPC")
+
+Gimap <- tm_shape(hunan.gi) + 
+  tm_fill(col = "gstat_adaptive", 
+          style = "pretty", 
+          palette="-RdBu", 
+          title = "local Gi") + 
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(gdppc, 
+             Gimap, 
+             asp=1, 
+             ncol=2)
+```
