@@ -1,5 +1,40 @@
 [
   {
+    "objectID": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html",
+    "href": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html",
+    "title": "Take-home Exercise 1: Geospatial Analytics for Public Good",
+    "section": "",
+    "text": "Digitization of urban infrastructure has introduced new datasets from tracking of movement patterns, including space and time, through GPS and RFID. Understanding these datasets may potentially lead to a more informed decision making process in urban management and planning.\nThe purpose of this exercise is to perform Exploratory Spatial Data Analysis (ESDA), via appropriate Local Indicators of Spatial Association (GLISA) and Emerging Hot Spot Analysis (EHSA) to undercover the spatial and spatio-temporal mobility patterns of public bus passengers in Singapore."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#introduction",
+    "href": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#introduction",
+    "title": "Take-home Exercise 1: Geospatial Analytics for Public Good",
+    "section": "",
+    "text": "Digitization of urban infrastructure has introduced new datasets from tracking of movement patterns, including space and time, through GPS and RFID. Understanding these datasets may potentially lead to a more informed decision making process in urban management and planning.\nThe purpose of this exercise is to perform Exploratory Spatial Data Analysis (ESDA), via appropriate Local Indicators of Spatial Association (GLISA) and Emerging Hot Spot Analysis (EHSA) to undercover the spatial and spatio-temporal mobility patterns of public bus passengers in Singapore."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#setting-up",
+    "href": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#setting-up",
+    "title": "Take-home Exercise 1: Geospatial Analytics for Public Good",
+    "section": "Setting up",
+    "text": "Setting up\n\n#loading in the necessary functions\npacman::p_load(tmap, sf, tidyverse)"
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#data-cleaning-and-transformation",
+    "href": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#data-cleaning-and-transformation",
+    "title": "Take-home Exercise 1: Geospatial Analytics for Public Good",
+    "section": "Data Cleaning and Transformation",
+    "text": "Data Cleaning and Transformation\nNow we have got three data sets, namely\n\nodbs_peak : The total number of trips from the Origin Bus Stop during the specified peak period.\nbusstop : The details of bus stop in Singapore, with the location.\nmpsz : The sub-zone boundary of URA Master Plan 2019.\n\nWe will next use st_intersection() for point and polygon overlay, to combine the busstop and mpsz data sets. This will provide us with output in point sf object.\nNext, select() of dplyr package is uses to retain only BUS_STOP_N and SUBZONE_C in the busstop_mpsz sf data frame.\n\nbusstop_mpsz &lt;- st_intersection(busstop, mpsz) %&gt;%\n  select(BUS_STOP_N, SUBZONE_C) %&gt;%\n  st_drop_geometry() #this removes the geometry (points) field\n\n\nglimpse(busstop_mpsz)\n\nRows: 5,156\nColumns: 2\n$ BUS_STOP_N &lt;chr&gt; \"13099\", \"13089\", \"06151\", \"13211\", \"13139\", \"13109\", \"1311…\n$ SUBZONE_C  &lt;chr&gt; \"RVSZ05\", \"RVSZ05\", \"SRSZ01\", \"SRSZ01\", \"SRSZ01\", \"SRSZ01\",…\n\n\nIt is noted that busstop_mpsz has 5156 entries compared to busstop which has 5161 entries. This indicates that there are 5 bus stops that are excluded in the resultant data frame because they are outside of Singapore boundary (per mpsz).\nBefore moving to the next step, we should SAVE OUTPUT INTO RDS FORMAT :\n\nwrite_rds(busstop_mpsz, \"data/rds/busstop_mpsz.csv\") \n\nNow we have got the busstop_mpsz data frame that shows the bus stops and their locations (in term of subzone), we will next combine this onto our our odbs_peak data frame which shows the total number of trips from particular bus stop during peak hour.\n\nobs_peak &lt;- left_join(odbs_peak, busstop_mpsz,\n                      by = c(\"ORIGIN_PT_CODE\" = \"BUS_STOP_N\")) %&gt;%\n  rename(ORIGIN_BS = ORIGIN_PT_CODE,\n         ORIGIN_SZ = SUBZONE_C)\n\nNext, as data sanity, we check if any duplicating records:\n\nduplicate &lt;- obs_peak %&gt;%\n  group_by_all() %&gt;%\n  filter(n()&gt;1) %&gt;%\n  ungroup()\n\nWe noted there is a total of 26 duplicating records, so we will need to only retain the unique value using the below:\n\nobs_peak &lt;- unique(obs_peak)\n\nThis removed 13 (duplicate) records from the data frame, now we have got 5070 records that are all unique.\nNext, we combine our obs_peak data frame onto the mpsz data frame to understand the total number of trips per origin bus stop during peak period in each planning sub zone per the Master Plan 2019 Planning Sub-zone GIS data set of URA.\n\nmpsz_obs_peak &lt;- left_join(mpsz, \n                           obs_peak,\n                           by = c(\"SUBZONE_C\" = \"ORIGIN_SZ\"))"
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#choropleth-visualisation",
+    "href": "Take-home_Ex/Take-home_Ex1/Take-home_Ex1.html#choropleth-visualisation",
+    "title": "Take-home Exercise 1: Geospatial Analytics for Public Good",
+    "section": "Choropleth Visualisation",
+    "text": "Choropleth Visualisation\nPreparing a choropleth map showing the distribution of passenger trips at planning sub-zone level:\n\ntm_shape(mpsz_obs_peak)+ \n  tm_fill(\"TRIPS\", \n          style = \"quantile\", \n          palette = \"Reds\",\n          title = \"Passenger trips\") +\n  tm_layout(main.title = \"Passenger Trips during Peak Hours\",\n            main.title.position = \"center\",\n            main.title.size = 1.2,\n            legend.height = 0.45, \n            legend.width = 0.35,\n            frame = TRUE) +\n  tm_borders(alpha = 0.3) +\n  tm_compass(type=\"8star\", size = 2) +\n  tm_scale_bar() +\n  tm_grid(alpha =0.2) +\n  tm_credits(\"Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\\n and Population data from Department of Statistics DOS\", \n             position = c(\"left\", \"bottom\"))"
+  },
+  {
     "objectID": "index.html",
     "href": "index.html",
     "title": "ISSS624",
@@ -278,5 +313,12 @@
     "title": "In-class_Ex1",
     "section": "Choropleth Visualisation",
     "text": "Choropleth Visualisation\nPreparing a choropleth map showing the distribution of passenger trips at planning sub-zone level:\n\ntm_shape(mpsz_origtrip)+\n  tm_fill(\"TRIPS\", \n          style = \"quantile\", \n          palette = \"Greens\",\n          title = \"Passenger trips\") +\n  tm_layout(main.title = \"Passenger trips generated at planning sub-zone level\",\n            main.title.position = \"center\",\n            main.title.size = 1.2,\n            legend.height = 0.45, \n            legend.width = 0.35,\n            frame = TRUE) +\n  tm_borders(alpha = 0.3) +\n  tm_compass(type=\"8star\", size = 2) +\n  tm_scale_bar() +\n  tm_grid(alpha =0.2) +\n  tm_credits(\"Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\\n and Population data from Department of Statistics DOS\", \n             position = c(\"left\", \"bottom\"))"
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex1/data/geospatial/MPSZ-2019.html",
+    "href": "Take-home_Ex/Take-home_Ex1/data/geospatial/MPSZ-2019.html",
+    "title": "ISSS624",
+    "section": "",
+    "text": "&lt;!DOCTYPE qgis PUBLIC ‘http://mrcc.com/qgis.dtd’ ‘SYSTEM’&gt;     dataset\n\n\n        0 0     false"
   }
 ]

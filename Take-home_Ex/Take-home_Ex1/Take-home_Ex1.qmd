@@ -1,0 +1,208 @@
+---
+title: "Take-home Exercise 1: Geospatial Analytics for Public Good"
+date: "21 November 2023"
+date-modified:  "last-modified"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
+---
+
+## Introduction
+
+Digitization of urban infrastructure has introduced new datasets from tracking of movement patterns, including space and time, through GPS and RFID. Understanding these datasets may potentially lead to a more informed decision making process in urban management and planning.
+
+The purpose of this exercise is to perform Exploratory Spatial Data Analysis (ESDA), via appropriate Local Indicators of Spatial Association (GLISA) and Emerging Hot Spot Analysis (EHSA) to undercover the spatial and spatio-temporal mobility patterns of public bus passengers in Singapore.
+
+## Setting up
+
+```{r}
+#loading in the necessary functions
+pacman::p_load(tmap, sf, tidyverse)
+```
+
+# Geospatial Data Wrangling
+
+# Data Import, Extraction and Processing
+
+### Aspatial Data
+
+***Passenger Volume by Origin Destination Bus Stops*** from LTA DataMall
+
+First download the raw data, and import into R environment using read_csv().
+
+```{r}
+odbs <- read_csv("data/aspatial/origin_destination_bus_202308.csv")
+#choosing Aug data as data set
+```
+
+Next we will need to clean up the data sets, first by changing the data type to factor for easy sorting, filter and grouping:
+
+```{r}
+odbs$ORIGIN_PT_CODE <- as.factor(odbs$ORIGIN_PT_CODE)
+odbs$DESTINATION_PT_CODE <- as.factor(odbs$DESTINATION_PT_CODE)
+#This changes the data type from chr to factor in the data field
+```
+
+The Data required are:
+
+-   Weekday morning peak (6am to 9am)
+
+-   Weekday afternoon peak (5pm-8pm)
+
+-   Weekend/Holiday morning peak (11am to 2pm)
+
+-   Weekend/Holiday evening peak (4pm to 7pm)
+
+We will next filter our *odbs* to get the required data per above:
+
+```{r}
+
+odbs_peak <- odbs %>% 
+  filter((DAY_TYPE == "WEEKDAY" & 
+           ((TIME_PER_HOUR >=6 & TIME_PER_HOUR <=9) | 
+              (TIME_PER_HOUR >=17 & TIME_PER_HOUR <=20))) | 
+           DAY_TYPE == "WEEKENDS/HOLIDAY" & 
+           ((TIME_PER_HOUR >=11 & TIME_PER_HOUR <=14) |
+              (TIME_PER_HOUR >=16 & TIME_PER_HOUR <=19))) %>%
+  group_by(ORIGIN_PT_CODE) %>% #this allow me to extract all those trips generated
+  summarize(TRIPS = sum(TOTAL_TRIPS)) #derives new field to allow me to do the aggregation
+```
+
+To preserve the data set, we can save the output in rds format for future use:
+
+```{r}
+write_rds(odbs_peak, "data/rds/odbs_peak.rds")
+```
+
+To import into R environment:
+
+```{r}
+odbs_peak <- read_rds("data/rds/odbs_peak.rds")
+```
+
+### Geospatial Data
+
+1.  Bus Stop Location from LTA DataMall
+
+```{r}
+busstop <- st_read(dsn = "data/geospatial",
+                     layer = "BusStop") %>% 
+    st_transform(crs = 3414)
+  #the st_transform(crs = ?) function takes takes 2D ST_Geometry data as input and returns values converted into the spatial reference specified (new coordinate reference system) provided, in this case 3414 is the Projected coordinate system for SG
+```
+
+```{r}
+glimpse(busstop)
+```
+
+2.  Hexagon, a [hexagon](https://desktop.arcgis.com/en/arcmap/latest/tools/spatial-statistics-toolbox/h-whyhexagons.htm) layer of 250m is provided to replace the relative coarse and irregular Master Plan 2019 Planning Sub-zone GIS data set of URA.
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial",layer="MPSZ-2019") %>% 
+  st_transform(crs = 3414)
+```
+
+```{r}
+glimpse(mpsz)
+```
+
+## Data Cleaning and Transformation
+
+Now we have got three data sets, namely
+
+1.  *odbs_peak* : The total number of trips from the Origin Bus Stop during the specified peak period.
+2.  *busstop* : The details of bus stop in Singapore, with the location.
+3.  *mpsz* : The sub-zone boundary of URA Master Plan 2019.
+
+We will next use `st_intersection()` for point and polygon overlay, to combine the *busstop* and *mpsz* data sets. This will provide us with output in point sf object.
+
+Next, `select()` of dplyr package is uses to retain only BUS_STOP_N and SUBZONE_C in the *busstop_mpsz* sf data frame.
+
+```{r}
+busstop_mpsz <- st_intersection(busstop, mpsz) %>%
+  select(BUS_STOP_N, SUBZONE_C) %>%
+  st_drop_geometry() #this removes the geometry (points) field
+```
+
+```{r}
+glimpse(busstop_mpsz)
+```
+
+It is noted that *busstop_mpsz* has 5156 entries compared to *busstop* which has 5161 entries. This indicates that there are 5 bus stops that are excluded in the resultant data frame because they are outside of Singapore boundary (per *mpsz*).
+
+Before moving to the next step, we should SAVE OUTPUT INTO RDS FORMAT :
+
+```{r}
+write_rds(busstop_mpsz, "data/rds/busstop_mpsz.csv") 
+```
+
+Now we have got the *busstop_mpsz* data frame that shows the bus stops and their locations (in term of subzone), we will next combine this onto our our *odbs_peak* data frame which shows the total number of trips from particular bus stop during peak hour.
+
+```{r}
+obs_peak <- left_join(odbs_peak, busstop_mpsz,
+                      by = c("ORIGIN_PT_CODE" = "BUS_STOP_N")) %>%
+  rename(ORIGIN_BS = ORIGIN_PT_CODE,
+         ORIGIN_SZ = SUBZONE_C)
+```
+
+Next, as data sanity, we check if any duplicating records:
+
+```{r}
+duplicate <- obs_peak %>%
+  group_by_all() %>%
+  filter(n()>1) %>%
+  ungroup()
+```
+
+We noted there is a total of 26 duplicating records, so we will need to only retain the unique value using the below:
+
+```{r}
+obs_peak <- unique(obs_peak)
+```
+
+This removed 13 (duplicate) records from the data frame, now we have got 5070 records that are all unique.
+
+Next, we combine our *obs_peak* data frame onto the *mpsz* data frame to understand the total number of trips per origin bus stop during peak period in each planning sub zone per the Master Plan 2019 Planning Sub-zone GIS data set of URA.
+
+```{r}
+mpsz_obs_peak <- left_join(mpsz, 
+                           obs_peak,
+                           by = c("SUBZONE_C" = "ORIGIN_SZ"))
+```
+
+# Geospatial Analysis
+
+Assessment point: to use the appropriate thematic and analytics mapping techniques and R functions introduced in class to analysis the geospatial data prepared. You will be assessed on your ability to derive analytical maps by using appropriate rate mapping techniques.
+
+## Choropleth Visualisation
+
+Preparing a choropleth map showing the distribution of passenger trips at planning sub-zone level:
+
+```{r}
+tm_shape(mpsz_obs_peak)+ 
+  tm_fill("TRIPS", 
+          style = "quantile", 
+          palette = "Reds",
+          title = "Passenger trips") +
+  tm_layout(main.title = "Passenger Trips during Peak Hours",
+            main.title.position = "center",
+            main.title.size = 1.2,
+            legend.height = 0.45, 
+            legend.width = 0.35,
+            frame = TRUE) +
+  tm_borders(alpha = 0.3) +
+  tm_compass(type="8star", size = 2) +
+  tm_scale_bar() +
+  tm_grid(alpha =0.2) +
+  tm_credits("Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\n and Population data from Department of Statistics DOS", 
+             position = c("left", "bottom"))
+```
+
+# Geovisualisation and Geocommunication
+
+Assessment point: you will be assessed on your ability to communicate the complex spatial statistics results in business friendly visual representations. This course is geospatial centric, hence, it is important for you to demonstrate your competency in using appropriate geovisualisation techniques to reveal and communicate the findings of your analysis
+
+## 
