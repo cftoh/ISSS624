@@ -1,0 +1,11 @@
+---
+title: "In-Class Exercise 2"
+date: "25 November 2023"
+date-modified:  "last-modified"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
+---
