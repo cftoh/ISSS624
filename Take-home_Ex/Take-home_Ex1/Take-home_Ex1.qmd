@@ -51,11 +51,13 @@ With reference to the passenger trips by origin at the hexagon level for the fou
 
 -   With reference to the EHSA maps and data visualisation prepared, describe the spatial patterns reveled. (not more than 250 words per cluster).
 
+I will be looking to Task 1: GeoVisualisation and Analysis and Task 3: Emerging Hot Spot Analysis in this exercise
+
 ## Setting up
 
 ```{r}
 #loading in the necessary functions
-pacman::p_load(tmap, sf, tidyverse, spdep)
+pacman::p_load(tmap, sf, tidyverse, spdep, sfdep, DT)
 ```
 
 # Geospatial Data Wrangling
@@ -106,6 +108,11 @@ odbs_peak <- odbs %>%
   summarize(TRIPS = sum(TOTAL_TRIPS)) #derives new field to allow me to do the aggregation
 ```
 
+```{r}
+#just to take a look at the data table
+datatable(odbs_peak)
+```
+
 To preserve the data set, we can save the output in rds format for future use:
 
 ```{r}
@@ -129,58 +136,53 @@ busstop <- st_read(dsn = "data/geospatial",
   #the st_transform(crs = ?) function takes takes 2D ST_Geometry data as input and returns values converted into the spatial reference specified (new coordinate reference system) provided, in this case 3414 is the Projected coordinate system for SG
 ```
 
-```{r}
-glimpse(busstop)
-```
+2.  Hexagon, a [hexagon](https://desktop.arcgis.com/en/arcmap/latest/tools/spatial-statistics-toolbox/h-whyhexagons.htm) layer of 250m (this distance is the perpendicular distance between the centre of the hexagon and its edges.) should be used to replace the relative coarse and irregular Master Plan 2019 Planning Sub-zone GIS data set of URA.
 
-2.  Hexagon, a [hexagon](https://desktop.arcgis.com/en/arcmap/latest/tools/spatial-statistics-toolbox/h-whyhexagons.htm) layer of 250m is provided to replace the relative coarse and irregular Master Plan 2019 Planning Sub-zone GIS data set of URA.
+Creating Hexagon
 
 ```{r}
-mpsz <- st_read(dsn="data/geospatial",layer="MPSZ-2019") %>% 
-  st_transform(crs = 3414)
-```
+busstop_hexagon_grid = st_make_grid(busstop, c(250, 250), what = "polygons", square = FALSE)
 
-```{r}
-glimpse(mpsz)
+hexagon_grid_sf = st_sf(geometry = busstop_hexagon_grid) %>%
+  # add grid ID
+  mutate(grid_id = 1:length(lengths(busstop_hexagon_grid)))
+
 ```
 
 ## Data Cleaning and Transformation
 
+We will next use `st_intersection()` for point and polygon overlay, to combine the data sets. This will provide us with output in point sf object.
+
+```{r}
+hexagon <- st_intersection(hexagon_grid_sf, busstop) %>%
+  select(1,2,4) %>%
+  st_drop_geometry()
+
+```
+
+```{r}
+write_rds(hexagon, "data/rds/hexagon.rds")
+```
+
 Now we have got three data sets, namely
 
 1.  *odbs_peak* : The total number of trips from the Origin Bus Stop during the specified peak period.
+
 2.  *busstop* : The details of bus stop in Singapore, with the location.
-3.  *mpsz* : The sub-zone boundary of URA Master Plan 2019.
 
-We will next use `st_intersection()` for point and polygon overlay, to combine the *busstop* and *mpsz* data sets. This will provide us with output in point sf object.
+3.  *hexagon:* A hexagon layer of 250m with bus stop location.
 
-Next, `select()` of dplyr package is uses to retain only BUS_STOP_N and SUBZONE_C in the *busstop_mpsz* sf data frame.
+[Performing the Relational Join (to update attribute table of one geospatial with another aspatial data set)]{.underline}
 
-```{r}
-busstop_mpsz <- st_intersection(busstop, mpsz) %>%
-  select(BUS_STOP_N, SUBZONE_C) %>%
-  st_drop_geometry() #this removes the geometry (points) field
-```
+Now we will next combine this onto our our *odbs_peak* data frame which shows the total number of trips from particular bus stop during peak hour.
 
 ```{r}
-glimpse(busstop_mpsz)
-```
-
-It is noted that *busstop_mpsz* has 5156 entries compared to *busstop* which has 5161 entries. This indicates that there are 5 bus stops that are excluded in the resultant data frame because they are outside of Singapore boundary (per *mpsz*).
-
-Before moving to the next step, we should SAVE OUTPUT INTO RDS FORMAT :
-
-```{r}
-write_rds(busstop_mpsz, "data/rds/busstop_mpsz.csv") 
-```
-
-Now we have got the *busstop_mpsz* data frame that shows the bus stops and their locations (in term of subzone), we will next combine this onto our our *odbs_peak* data frame which shows the total number of trips from particular bus stop during peak hour.
-
-```{r}
-obs_peak <- left_join(odbs_peak, busstop_mpsz,
+obs_peak <- left_join(odbs_peak, hexagon,
                       by = c("ORIGIN_PT_CODE" = "BUS_STOP_N")) %>%
-  rename(ORIGIN_BS = ORIGIN_PT_CODE,
-         ORIGIN_SZ = SUBZONE_C)
+  rename(ORIGIN_BS = ORIGIN_PT_CODE) %>%
+  group_by(grid_id) %>% #group by the grid_ID that has values
+  summarize(TOTAL_TRIPS = sum(TRIPS)) #derives new field to allow me to do the aggregation of total trips per grid IDs
+
 ```
 
 Next, as data sanity, we check if any duplicating records:
@@ -192,15 +194,153 @@ duplicate <- obs_peak %>%
   ungroup()
 ```
 
-We noted there is a total of 26 duplicating records, so we will need to only retain the unique value using the below:
+We noted there are duplicating records, so we will need to only retain the unique value using the below:
 
 ```{r}
 obs_peak <- unique(obs_peak)
 ```
 
-This removed 13 (duplicate) records from the data frame, now we have got 5070 records that are all unique.
+This removed duplicate records from the data frame, now we have got all unique records .
 
-Next, we combine our *obs_peak* data frame onto the *mpsz* data frame to understand the total number of trips per origin bus stop during peak period in each planning sub zone per the Master Plan 2019 Planning Sub-zone GIS data set of URA.
+However, upon closer inspection, noted there are some duplicates on records:
+
+```{r}
+datatable(obs_peak)
+```
+
+Per the data table above, we can see that grid_id\[4\] and grid id\[128\] share the same TOTAL_TRIP, upon closer check, we noted that the busstop 25059 has the point coordinate that sits between hexagon 4 and hexagon 128.
+
+![](data/busstop_1.png)
+
+```{r}
+par(mfrow = c(1, 2))
+plot(hexagon_grid_sf[[1]][[4]])
+points(3970.122, 28063.28)
+plot(hexagon_grid_sf[[1]][[128]])
+points(3970.122, 28063.28)
+
+```
+
+We will keep the data sitting on the line of hexagon as it is, for now.
+
+Next, we combine our *obs_peak* data frame onto the *hexagon_grid_sf* data frame to understand the total number of trips per origin bus stop during peak period in hexagon.
+
+```{r}
+#hexagon_obs_peak <- left_join(hexagon_grid_sf, obs_peak, by = "grid_id") %>%
+#  drop_na(TRIPS)
+
+
+#hexagon_obs_peak <- unique(hexagon_obs_peak)
+
+
+hexagon_obs_peak <- left_join(hexagon_grid_sf, obs_peak,
+            by = "grid_id") %>%
+  drop_na("TOTAL_TRIPS","grid_id")  #remove the entries with NA in TRIPS and grid_id
+
+
+
+
+```
+
+```{r}
+tmap_mode("view")
+tmap_options(check.and.fix = TRUE)
+map_honeycomb = tm_shape(hexagon_obs_peak) +
+  tm_fill(
+    col = "TOTAL_TRIPS",
+    palette = "Reds",
+    style = "cont",
+    title = "Number of Trips",
+    alpha = 0.6,
+    popup.vars = c("Number of TRIPS: " = "TOTAL_TRIPS"),
+    popup.format = list(TOTAL_TRIPS = list(format = "f", digits = 0))) +
+  tm_borders(col = "grey40", lwd = 0.7)+
+  tm_scale_bar()
+
+map_honeycomb_q = tm_shape(hexagon_obs_peak)+ 
+  tm_fill("TOTAL_TRIPS", 
+          style = "quantile", 
+          palette = "Reds",
+          title = "Number of Trips (Quantile)") +
+  tm_layout(main.title = "Passenger Trips during Peak Hours",
+            main.title.position = "center",
+            main.title.size = 1.2,
+            legend.height = 0.45, 
+            legend.width = 0.35,
+            frame = TRUE) +
+  tm_borders(alpha = 0.3) +
+  tm_scale_bar() +
+  tm_grid(alpha =0.2)
+
+tmap_arrange(map_honeycomb, map_honeycomb_q, asp=1, ncol=2)
+
+
+
+```
+
+Next we take a closer look at those hexagon area that have \>100k total number of trips:
+
+```{r}
+tmap_mode("view")
+tmap_options(check.and.fix = TRUE)
+map_honeycomb = tm_shape(hexagon_obs_peak %>%
+                         filter(TOTAL_TRIPS>100000)) +
+  tm_fill(
+    col = "TOTAL_TRIPS",
+    palette = "Reds",
+    style = "cont",
+    title = "Number of TRIPS",
+    id = "grid_id",
+    alpha = 0.6,
+    popup.vars = c("Number of TRIPS: " = "TOTAL_TRIPS"),
+    popup.format = list(TOTAL_TRIPS = list(format = "f", digits = 0))) +
+  tm_borders(col = "grey40", lwd = 0.7)
+
+
+map_honeycomb
+```
+
+[Own Analysis]{.underline}
+
+The above map shows that the areas with \>100k total trips during the peak hours are maintain saturated along key residential area, or likely in areas where there is direct bus to cities / CBD (for those commuting to school / work during peak hours).
+
+It is also worth noting that the areas near SG-MY causeway also have high number of total trips during peak period, likely due to people residing in Malaysia heading to Singapore for work / study, likely contributed by weekdays peak period.
+
+# Emerging Hot Spot Analysis(EHSA)
+
+Objective is to:
+
+-   Perform Mann-Kendall Test by using the spatio-temporal local Gi\* values,
+
+-   Prepared EHSA maps of the Gi\* values of the passenger trips by origin at the hexagon level. The maps should only display the significant (i.e. p-value \< 0.05).
+
+-   With reference to the EHSA maps and data visualisation prepared, describe the spatial patterns reveled. (not more than 250 words per cluster).
+
+First we need to create the Time Series Cube:
+
+# Additional
+
+Note: This is purely for my own curiosity.
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial",layer="MPSZ-2019") %>% 
+  st_transform(crs = 3414)
+```
+
+```{r}
+busstop_mpsz <- st_intersection(busstop, mpsz) %>%
+  select(BUS_STOP_N, SUBZONE_C) %>%
+  st_drop_geometry()
+```
+
+```{r}
+obs_peak <- left_join(odbs_peak, busstop_mpsz,
+                      by = c("ORIGIN_PT_CODE" = "BUS_STOP_N")) %>%
+  rename(ORIGIN_BS = ORIGIN_PT_CODE,
+         ORIGIN_SZ = SUBZONE_C)
+
+obs_peak <- unique(obs_peak)
+```
 
 ```{r}
 mpsz_obs_peak <- left_join(mpsz, 
@@ -208,18 +348,11 @@ mpsz_obs_peak <- left_join(mpsz,
                            by = c("SUBZONE_C" = "ORIGIN_SZ"))
 ```
 
-# Geospatial Analysis
-
-Assessment point: to use the appropriate thematic and analytics mapping techniques and R functions introduced in class to analysis the geospatial data prepared. You will be assessed on your ability to derive analytical maps by using appropriate rate mapping techniques.
-
-## Choropleth Visualisation
-
 Preparing a choropleth map showing the distribution of passenger trips at planning sub-zone level:
 
 ```{r}
 mpsz_obs_peak %>%
-  drop_na(TRIPS) #this is remove NA data, as it is noted that there are a number of NA data in TRIP column 
-
+  drop_na(TRIPS)
 tm_shape(mpsz_obs_peak)+ 
   tm_fill("TRIPS", 
           style = "quantile", 
@@ -238,8 +371,6 @@ tm_shape(mpsz_obs_peak)+
   tm_credits("Source: Planning Sub-zone boundary from Urban Redevelopment Authorithy (URA)\n and Population data from Department of Statistics DOS", 
              position = c("left", "bottom"))
 ```
-
-From the first glance of the geovisualization, we can observe that there are a few highly dense area which indicates high number of trips taken from those areas during peak period. The areas seem to be in the popular residential areas.
 
 An extra step to look at the distribution of the total number of trips during peak period broken down by Region distribution.
 
@@ -329,142 +460,4 @@ top_n(agg_mpsz_obs_peak_bysubzones, n=10, TRIPS) %>%
 
 ```
 
-# Geovisualisation and Geocommunication
-
-Assessment point: you will be assessed on your ability to communicate the complex spatial statistics results in business friendly visual representations. This course is geospatial centric, hence, it is important for you to demonstrate your competency in using appropriate geovisualisation techniques to reveal and communicate the findings of your analysis
-
-### Computing Contiguity Spatial Weight
-
-Before we can compute the global spatial autocorrelation statistics, we need to construct a spatial weights of the study area.
-
-To compute Queen contiguity weight matrix:
-
-```{r}
-mpsz_obs_peak <- mpsz_obs_peak %>%
-  drop_na(TRIPS) #this is remove NA data
-
-
-wm_q <- poly2nb(mpsz_obs_peak, 
-                queen=TRUE)
-summary(wm_q)
-```
-
-### Row-standardised weights matrix
-
-To prepare for the next analysis, we need to assign weights to each neighboring polygon. In our case, each neighboring polygon will be assigned equal weight (style="W"). This is accomplished by assigning the fraction 1/(#ofneighbors) to each neighboring county then summing the weighted income values.
-
-```{r}
-rswm_q <- nb2listw(wm_q, 
-                   style="W", 
-                   zero.policy = TRUE)
-rswm_q
-```
-
-### Local Indicators of Spatial Association (LISA) Analysis
-
--   Compute LISA of the passengers trips generate by origin at hexagon level.
-
--   Display the LISA maps of the passengers trips generate by origin at hexagon level. The maps should only display the significant (i.e. p-value \< 0.05)
-
--   With reference to the analysis results, draw statistical conclusions (not more than 200 words per visual).
-
-LISA are statistics that evaluate the existence of clusters in the spatial arrangement of a given variable. In this case we are studying the number of trips rates among various regions in Singapore in the rates mean that there are areas that have higher or lower rates than is to be expected by chance alone; that is, the values occurring are above or below those of a random distribution in space.
-
-We will apply appropriate LISA, especially local Moran'I to detect cluster and/or outlier from number of trips during peak period in various subzones in Singapore.
-
-### Computing Local Moran's I
-
-To compute local Moran's I, the [*localmoran()*](https://r-spatial.github.io/spdep/reference/localmoran.html) function of **spdep** will be used. It computes *Ii* values, given a set of *zi* values and a *listw* object providing neighbour weighting information for the polygon associated with the *zi* values.
-
-The code chunks below are used to compute local Moran's I of *Number of Trips during peak hour* at the subzone level.
-
-```{r}
-
-fips <- order(mpsz_obs_peak$SUBZONE_N)
-localMI <- localmoran(mpsz_obs_peak$TRIPS, rswm_q)
-head(localMI)
-```
-
-Now we have the the localMI, to create the local Moran's I map, we will first append the local Moran's I dataframe (i.e. localMI) onto the mpsz_obs_peak DataFrame:
-
-```{r}
-mpsz_obs_peak.localMI <- cbind(mpsz_obs_peak,localMI) %>%
-  rename(Pr.Ii = Pr.z....E.Ii..)
-```
-
-#### Mapping local Moran's I values
-
-To plot the local Moran's I values:
-
-```{r}
-tm_shape(mpsz_obs_peak.localMI) +
-  tm_fill(col = "Ii", 
-          style = "pretty",
-          palette = "RdBu",
-          title = "local moran statistics") +
-  tm_borders(alpha = 0.5)
-
-```
-
-#### Mapping local Moran's I p-values
-
-The choropleth shows there is evidence for both positive and negative Ii values. However, it is useful to consider the p-values for each of these values, as consider above.
-
-The code chunks below produce a choropleth map of Moran's I p-values by using functions of **tmap** package.
-
-```{r}
-tm_shape(mpsz_obs_peak.localMI) +
-  tm_fill(col = "Pr.Ii", 
-          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
-          palette="-Blues", 
-          title = "local Moran's I p-values") +
-  tm_borders(alpha = 0.5)
-```
-
-#### Mapping both local Moran's I values and p-values
-
-```{r}
-localMI.map <- tm_shape(mpsz_obs_peak.localMI) +
-  tm_fill(col = "Ii", 
-          style = "pretty", 
-          title = "local moran statistics") +
-  tm_borders(alpha = 0.5)
-
-pvalue.map <- tm_shape(mpsz_obs_peak.localMI) +
-  tm_fill(col = "Pr.Ii", 
-          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
-          palette="-Blues", 
-          title = "local Moran's I p-values") +
-  tm_borders(alpha = 0.5)
-
-tmap_arrange(localMI.map, pvalue.map, asp=1, ncol=2)
-```
-
-#### Computing Monte Carlo Moran's I
-
-```{r}
-set.seed(1234)
-bperm= moran.mc(mpsz_obs_peak$TRIPS, 
-                listw=rswm_q, 
-                nsim=999, 
-                zero.policy = TRUE, 
-                na.action=na.omit)
-bperm
-```
-
-#### Visualising Monte Carlo Moran's I
-
-```{r}
-mean(bperm$res[1:999])
-var(bperm$res[1:999])
-summary(bperm$res[1:999])
-
-hist(bperm$res, 
-     freq=TRUE, 
-     breaks=20, 
-     xlab="Simulated Moran's I")
-abline(v=0, 
-       col="red") 
-```
-
-### Emerging Hot Spot Analysis(EHSA)
+# 

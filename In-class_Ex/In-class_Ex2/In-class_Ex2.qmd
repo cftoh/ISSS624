@@ -22,11 +22,11 @@ pacman:: p_load(sf, tmap, sfdep, tidyverse, knitr)
 
 Own Notes:
 
-- sf is the package we used to import/export/handles spatial data in tdf format
-- sfdep is going to replace spdep (we used in HOE2), and also to use to create space-time cube / emerging hotspot analysis
-- tmap: mapping package to create thematic map
-- tidyverse (concept/framework, this is modular form which can be easily updated) is family of R packages to design R packages conform with tibble dataframe.Therefore tidyverse allow reading and usages of packages using a conformed packages
-- knitr: help with creating static html table instead of writing own tab for html table.
+-   sf is the package we used to import/export/handles spatial data in tdf format
+-   sfdep is going to replace spdep (we used in HOE2), and also to use to create space-time cube / emerging hotspot analysis
+-   tmap: mapping package to create thematic map
+-   tidyverse (concept/framework, this is modular form which can be easily updated) is family of R packages to design R packages conform with tibble dataframe.Therefore tidyverse allow reading and usages of packages using a conformed packages
+-   knitr: help with creating static html table instead of writing own tab for html table.
 
 Next is to import Data:
 
@@ -89,9 +89,10 @@ Notice that st_weights() provides three arguments.
 
 Measure Global and Local Autocorrelation
 
-Computing Global Moran\'s I test:
+Computing Global Moran's I test:
 
-```{r} # this is just FYI for GLOBAL, an old way not following the tibble form. DONT DO THIS.}
+```{r}
+# this is just FYI for GLOBAL, an old way not following the tibble form. DONT DO THIS.}
 moranI <- global_moran(wm_q$GDPPC,
                        wm_q$nb,
                        wm_q$wt)
@@ -109,7 +110,7 @@ global_moran_perm(wm_q$GDPPC,
 #It is always a good practice to use set.seed() before performing simulation. This is to ensure that the computation is reproducible.
 ```
 
-## Computing local Moran\'s I
+## Computing local Moran's I
 
 ```{r}
 #IMPORTANT
@@ -141,7 +142,7 @@ The output of `local_moran()` is a sf data.frame containing the columns ii, eii,
 
 -   kurtosis: For `localmoran_perm`, the output of e1071::kurtosis() for the permutation samples underlying the standard deviates.
 
-### Visuaising local Moran\'s I and p-value
+### Visuaising local Moran's I and p-value
 
 ```{r}
 tmap_mode("plot")
@@ -165,7 +166,7 @@ tmap_arrange(map1, map2, ncol = 2)
 
 ### Visualising LISA map
 
-LISA map is a categorical map showing outliers and clusters. There are two types of outliers namely: High-Low and Low-High outliers. Likewise, there are two type of clusters namely: High-High and Low-Low cluaters. In fact, LISA map is an interpreted map by combining local Moran\'s I of geographical areas and their respective p-values.
+LISA map is a categorical map showing outliers and clusters. There are two types of outliers namely: High-Low and Low-High outliers. Likewise, there are two type of clusters namely: High-High and Low-Low cluaters. In fact, LISA map is an interpreted map by combining local Moran's I of geographical areas and their respective p-values.
 
 In lisa sf data.frame, we can find three fields contain the LISA categories. They are *mean*, *median* and *pysal*. In general, classification in *mean* will be used as shown in the code chunk below.
 
