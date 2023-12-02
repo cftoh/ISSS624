@@ -31,7 +31,8 @@ website:
         menu:
         - text: Take-home Exercise 1
           href: Take-home_Ex/Take-Home_Ex1/Take-Home_Ex1.html
-      
+        - text: Take-home Exercise 2
+          href: Take-home_Ex/Take-Home_Ex2/Take-Home_Ex2.html     
     right:
       - href: index.qmd
         text: Home
