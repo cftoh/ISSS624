@@ -52,6 +52,10 @@ mpsz <- st_read(dsn = "data/geospatial",
   st_transform(crs = 3414)
 ```
 
+```{r}
+mpsz <- write_rds(mpsz, "data/rds/mpsz.rds")
+```
+
 Import csv (aspatial) into R (The Origin Destination, OD data)
 
 ```{r}
@@ -62,7 +66,7 @@ odbus <- read_csv("data/aspatial/origin_destination_bus_202308.csv")
 glimpse(odbus)
 ```
 
-For the purpose of this exercise, we will extract commuting flows on weekday and between 6 and 9 o\'clock.
+For the purpose of this exercise, we will extract commuting flows on weekday and between 6 and 9 o'clock.
 
 ```{r}
 odbus6_9 <- odbus %>%
