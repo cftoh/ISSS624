@@ -1,0 +1,10 @@
+---
+title: "Hands-on Exercise 8"
+date: "9 December 2023"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
+---
