@@ -1001,7 +1001,7 @@ ggarrange(unc_p, orc_p, dec_p, dbc_p,
           nrow = 2)
 ```
 
-From the above, we can draw the conclusion that there isnt much of a correlation between the
+From the above, we can draw the conclusion that there isnt much of a correlation between the age 7 to 12 population and number of trips across the hexagon areas O/D.
 
 ## Future Work - Train Station
 
