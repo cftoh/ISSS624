@@ -647,7 +647,8 @@ primary_school_MSPZ <- left_join(primary_school, MPSZ,
 Now we have a primary_school_MSPZ data set that show each primary school, their distinctive programme, and the associated SZ location,and the pop data set that has population aged 7 to 12 by SZ location.
 
 ```{r}
-primary_school_MSPZ  <- read_csv("data/aspatial/primary_school_MSPZ.csv")
+
+write_rds(primary_school_MSPZ, "data/rds/primary_school_MSPZ.csv") 
 ```
 
 We will look into this later.
