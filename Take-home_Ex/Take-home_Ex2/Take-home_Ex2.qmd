@@ -1,5 +1,13 @@
 ---
 title: "Take-Home Exercise 2"
+date: "6 December 2023"
+date-modified:  "last-modified"
+format: html
+execute:
+  echo: true
+  eval: true
+  warning:  false
+editor: visual
 ---
 
 # Take-home Exercise 2: Applied Spatial Interaction Models: A case study of Singapore public bus commuter flows
@@ -717,6 +725,10 @@ flow_data1 <- flow_data1 %>%
 ```
 
 ```{r}
+flow_data1 <- unique(flow_data1)
+```
+
+```{r}
 write_rds(flow_data1, "data/rds/SIM_data")
 ```
 
@@ -793,22 +805,205 @@ summary(flow_data1)
 
 ### Origin (Production) constrained SIM
 
+from the summary table above we noted tehre are NA's.
+
 ```{r}
-#any(is.infinite(flow_data1$TRIPS))
+flow_data1[is.na(flow_data1$ORIGIN_AGE7_12),]
+
+```
+
+For the purpose of this exercise where we just want data within the specific hexagon areas, we will drop the NA data, and remember to remove the those whiten the same hexagon (dist = 0)
+
+```{r}
+flow_data1 <- flow_data1 %>%
+  drop_na() %>%
+  filter(dist >0)
+
 ```
 
 ```{r}
-#orcSIM <- glm(formula = TRIPS ~ 
-#                 ORIGIN_SZ +
-#                 log(DESTIN_AGE7_12) +
-#                 log(dist),
-#              family = poisson(link = "log"),
-#              data = flow_data1,
-#              na.action = na.exclude)
-#summary(orcSIM)
+summary(flow_data1)
 ```
 
-## Additional - Train Station
+### Unconstrained Spatial Interaction Model
+
+```{r}
+uncSIM <- glm(formula = TRIPS ~ 
+                log(ORIGIN_AGE7_12) + 
+                log(DESTIN_AGE7_12) +
+                log(dist),
+              family = poisson(link = "log"),
+              data = flow_data1,
+              na.action = na.exclude)
+uncSIM
+```
+
+### R-squared function
+
+```{r}
+CalcRSquared <- function(observed,estimated){
+  r <- cor(observed,estimated)
+  R2 <- r^2
+  R2
+}
+```
+
+```{r}
+CalcRSquared(uncSIM$data$TRIPS, uncSIM$fitted.values)
+```
+
+```{r}
+r2_mcfadden(uncSIM)
+```
+
+### Origin (Production) constrained SIM
+
+```{r}
+orcSIM <- glm(formula = TRIPS ~ 
+                 ORIGIN_GRID +
+                 log(DESTIN_AGE7_12) +
+                 log(dist),
+              family = poisson(link = "log"),
+              data = flow_data1,
+              na.action = na.exclude)
+summary(orcSIM)
+```
+
+We can examine how the constraints hold for destinations this time
+
+```{r}
+CalcRSquared(orcSIM$data$TRIPS, orcSIM$fitted.values)
+```
+
+### Destination constrained
+
+```{r}
+decSIM <- glm(formula = TRIPS ~ 
+                DESTIN_GRID + 
+                log(ORIGIN_AGE7_12) + 
+                log(dist),
+              family = poisson(link = "log"),
+              data = flow_data1,
+              na.action = na.exclude)
+summary(decSIM)
+```
+
+We can examine how the constraints hold for destinations this time.
+
+```{r}
+CalcRSquared(decSIM$data$TRIPS, decSIM$fitted.values)
+```
+
+### Doubly constrained
+
+```{r}
+dbcSIM <- glm(formula = TRIPS ~ 
+                ORIGIN_GRID + 
+                DESTIN_GRID + 
+                log(dist),
+              family = poisson(link = "log"),
+              data = flow_data1,
+              na.action = na.exclude)
+summary(dbcSIM)
+```
+
+### Model comparison
+
+Using [`compare_performance()`](https://easystats.github.io/performance/reference/compare_performance.html) of [**performance**](https://easystats.github.io/performance/) package
+
+```{r}
+model_list <- list(unconstrained=uncSIM,
+                   originConstrained=orcSIM,
+                   destinationConstrained=decSIM,
+                   doublyConstrained=dbcSIM)
+```
+
+```{r}
+compare_performance(model_list,
+                    metrics = "RMSE")
+```
+
+This compute the RMSE of all the models in *model_list* file.
+
+The print above reveals that all the SIMs are of similar value.
+
+**Visualising fitted**
+
+We will extract the fitted values from each model, join the values to *data_flow1* data frame, for all the models.
+
+```{r}
+df <- as.data.frame(uncSIM$fitted.values) %>%
+  round(digits = 0) 
+
+flow_data1 <- flow_data1 %>% 
+  cbind(df) %>% 
+  rename(uncTRIPS = "uncSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(orcSIM$fitted.values) %>% 
+  round(digits = 0) 
+
+flow_data1 <- flow_data1 %>% 
+  cbind(df) %>% 
+  rename(orcTRIPS = "orcSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(decSIM$fitted.values) %>% 
+  round(digits = 0) 
+
+flow_data1 <- flow_data1 %>% 
+  cbind(df) %>% 
+  rename(decTRIPS = "decSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(dbcSIM$fitted.values) %>% 
+  round(digits = 0) 
+
+flow_data1 <- flow_data1 %>% 
+  cbind(df) %>% 
+  rename(dbcTRIPS = "dbcSIM$fitted.values")
+```
+
+Now we plot it:
+
+```{r}
+
+
+unc_p <- ggplot(data = flow_data1,
+                aes(x = uncTRIPS,
+                    y = TRIPS)) +
+  geom_point() +
+  geom_smooth(method = lm)
+
+orc_p <- ggplot(data = flow_data1,
+                aes(x = orcTRIPS,
+                    y = TRIPS)) +
+  geom_point() +
+  geom_smooth(method = lm)
+
+dec_p <- ggplot(data = flow_data1,
+                aes(x = decTRIPS,
+                    y = TRIPS)) +
+  geom_point() +
+  geom_smooth(method = lm)
+
+dbc_p <- ggplot(data = flow_data1,
+                aes(x = dbcTRIPS,
+                    y = TRIPS)) +
+  geom_point() +
+  geom_smooth(method = lm)
+
+ggarrange(unc_p, orc_p, dec_p, dbc_p,
+          ncol = 2,
+          nrow = 2)
+```
+
+From the above, we can draw the conclusion that there isnt much of a correlation between the
+
+## Future Work - Train Station
 
 ```{r}
 TrainStation <- st_read(dsn="data/geospatial",                   
