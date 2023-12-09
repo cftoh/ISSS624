@@ -70,7 +70,7 @@ For the purpose of this assignment, data from several open government sources wi
 Load in necessary packages:
 
 ```{r}
-pacman::p_load(tmap, sf, sp, DT, stplanr,
+pacman::p_load(tmap, sf, sp, DT, stplanr, httr,
                performance, reshape2,
                ggpubr, tidyverse)
 ```
@@ -111,10 +111,10 @@ Per the documentation of st_make_grid:
 
 *cellsize* is *numeric of length 1 or 2 with target cellsize: ..for hexagonal cells the distance between opposite edges (edge length is cellsize/sqrt(3)). A length units object can be passed, or an area unit object with area size of the square or hexagonal cell.*
 
-In this case, the distance between opposite edges should be 325m \* 2. And the length of hexagon should be 325m.
+In this case, the distance between opposite edges should be 375m \* 2. And the length of hexagon should be 375m.
 
 ```{r}
-BusStop_hexagon_grid = st_make_grid(BusStop, 325, what = "polygons", square = FALSE)
+BusStop_hexagon_grid = st_make_grid(BusStop, 375, what = "polygons", square = FALSE)
 
 BusStop_hexagon_sf = st_sf(geometry = BusStop_hexagon_grid) %>%
   # add grid ID
@@ -321,7 +321,7 @@ BusStop_Trips2 <- BusStop_Trips1 %>%
 summary(BusStop_Trips2)
 ```
 
-Now we see the minimum is 325, which is the the perpendicular distance between the centre of the hexagon and its edges (next hexagon).
+Now we see the minimum is 375, which is the the perpendicular distance between the centre of the hexagon and its edges (next hexagon).
 
 ### Visualization for the TOTAL TRIPS taken at Origin and Destination hexagon area
 
@@ -551,185 +551,259 @@ tm_shape() +
 
 This is quite interesting, as we see the most obvious OD flow is between the woodland checkpoint to woodland interchange / mrt station area. It is also interesting to see there is long distance OD from woodlands to the major Punggol/seletar area.
 
+Also as we are looking at morning peak, likely it is the secondary school student flow, going to school.
+
 ```{r}
 tmap_mode("plot")
 ```
 
 ## Assembling VARIABLES
 
-Next moving on to the assemblling at least three propulsive and three attractiveness variables by using aspatial and geospatial from publicly available sources.
+Next moving on to the assembling at least three propulsive and three attractiveness variables by using aspatial and geospatial from publicly available sources. The purpose is to find out what causes the OD flow in certain area, and why is certain areas higher flow than another.
 
 We will look at the following:
 
-1.  Population of Age 7 to 12
+1.  *Business*, *entertn*, *F&B*, *FinServ*, *Leisure&Recreation* and *Retails* are geospatial data sets of the locations of business establishments, entertainments, food and beverage outlets, financial centres, leisure and recreation centres, retail and services stores/outlets.
 
-2.  School (Primary School) Types
+2.  HDB: This data set is the geocoded version of *HDB Property Information* data from data.gov. The data set is prepared using September 2021 data.
 
-3.  School distinctive programme
+```{r}
+business <- st_read(dsn="data/geospatial",
+                  layer="Business")%>%
+  st_transform(crs = 3414)
+```
 
-4.  HDB Information - Occupancy rate
+```{r}
+entertn <- st_read(dsn="data/geospatial",
+                  layer="entertn") %>%
+  st_transform(crs = 3414)
+```
 
-5.  MPSZ
+```{r}
+fnb <- st_read(dsn="data/geospatial",
+                  layer="F&B") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+retail <- st_read(dsn="data/geospatial",
+                  layer="Retails") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+lnr <- st_read(dsn="data/geospatial",
+                  layer="Liesure&Recreation") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+fs <- st_read(dsn="data/geospatial",
+                  layer="FinServ") %>%
+  st_transform(crs = 3414)
+```
+
+### Data wraggling (into hexagon analytical area)
+
+```{r}
+hdb <- read_csv("data/aspatial/hdb.csv")
+```
 
 ```{r}
 pop <- read_csv("data/aspatial/pop.csv")
 ```
 
-We will focus on age 7 to 12 therefore will remove the other data set, and remove those zero values.
+Considering the flow of the student in morning peak likely be in secondary / JC
+
+We will focus on age 13 to 24 therefore will remove the other data set, and remove those zero values.
 
 ```{r}
-pop <- pop %>%
-  select(1:3) %>%
-  filter(AGE7_12>0)
+pop_13 <- pop %>%
+  select(1:2,4) %>%
+  filter(AGE13_24>0)
   
 ```
 
 This will gives us the PA, SZ, and Total number of Age7_12.
 
-Next we look into the primary school
+Next we look into the secondary school
 
 ```{r}
 school <- read_csv("data/aspatial/Generalinformationofschools.csv")
 ```
 
-Note we dont need so many different columns, and we only want to look at primary school:
+Note we dont need so many different columns, and we only want to look at secondary / JC:
 
 ```{r}
-school <- school %>%
-  filter(mainlevel_code == "PRIMARY") %>%
-  select(1,3:4,10:11,19:31)
+school_13 <- school %>%
+  filter(mainlevel_code != "PRIMARY") %>%
+  select(1,3:4,10:11,19:24)
 ```
 
 ```{r}
-write_rds(school, "data/rds/PrimarySchool.csv") 
+write_rds(school_13, "data/rds/nonPrimarySchool.csv") 
 ```
 
-next will look into the vairous school distinctive programme
+next we will look into the postal code of the school_13 so we can obtain the geometry of this data:
 
 ```{r}
-distinctive <- read_csv("data/aspatial/SchoolDistinctiveProgrammes.csv")
+school_13_geo <- left_join(school_13, hdb, 
+                 by =c("postal_code" = "postal"))
 ```
 
-we will just look into the alp_domain for all primary school
+From the dataset we can see that the postal code not able to find matching postal in hdb data set.
 
-```{r}
-table(distinctive$alp_domain)
-```
-
-Combining this to our primary school data
-
-```{r}
-primary_school <- left_join(school,distinctive) 
-```
-
-There are three school without the corresponding distinctive, this is likely due to the primary school is new, we will confirm on this later. The school database is updated Nov 2023, while the data in distinctive was updated in 2021.
-
-The few distinctive programme will serve as key variables in this dataset.
-
-Next we will go back to pop data set:
-
-```{r}
-pop <- left_join(pop, MPSZ, 
-                 by =c("SZ" = "SUBZONE_N"))
-```
-
-We do the same to the primary school
-
-```{r}
-primary_school_MSPZ <- left_join(primary_school, MPSZ, 
-                            by =c("dgp_code" = "PLN_AREA_N"))
-```
-
-Noted that the data got NA for those dgp_code = SENG KANG, due to discrepencies in format. Therefore we will amend this and rerun
-
-```{r}
-primary_school$dgp_code[primary_school$dgp_code == "SENG KANG"] = "SENGKANG"
-```
-
-```{r}
-primary_school_MSPZ <- left_join(primary_school, MPSZ, 
-                            by =c("dgp_code" = "PLN_AREA_N"))%>%
-  select(1,4:5,26:27,8,19:23,30)
-```
-
-Now we have a primary_school_MSPZ data set that show each primary school, their distinctive programme, and the associated SZ location,and the pop data set that has population aged 7 to 12 by SZ location.
+So we use SLA geoservices (finally told of in Class 4... after struggling for 3 endless night) to find the x y.
 
 ```{r}
 
-write_rds(primary_school_MSPZ, "data/rds/primary_school_MSPZ.csv") 
-```
+url<- "https://www.onemap.gov.sg/api/common/elastic/search"
 
-We will look into this later.
+csv <- read_csv("data/aspatial/GeneralInformationofSchools.csv")
+postcodes <- csv$'postal_code'
 
-## Preparing Origin and Destination Attributes
+found <- data.frame()
+not_found <- data.frame()
 
-### Preparing origin attribute
-
-```{r}
-pop <- read_csv("data/aspatial/pop.csv")
-```
-
-```{r}
-pop <- pop %>%
-  left_join(MPSZ,
-            by = c("PA" = "PLN_AREA_N",
-                   "SZ" = "SUBZONE_N")) %>%
-  select(1:6) %>%
-  rename(SZ_NAME = SZ,
-         SZ = SUBZONE_C)
-```
-
-```{r}
-mpsz_hexagon <- st_intersection(BusStop_hexagon_sf, MPSZ) %>%
-  drop_na()
-```
-
-```{r}
-flow_data <- left_join(BusStop_Trips1,mpsz_hexagon, 
-                       by =c("ORIGIN_GRID" = "grid_id")) %>%
-  select(1:10)%>%
-  rename(ORIGIN_SZ = SUBZONE_C,
-         ORIGIN_SZ_NAME = SUBZONE_N)
+for (postcode in postcodes){
+  query<- list("searchVal" = postcode, "returnGeom"='Y', 'getAddrDetails'='Y',"pagenum"='1')
+  res <-GET(url, query=query)
   
-flow_data <- unique(flow_data)
-```
-
-```{r}
-flow_data <- left_join(flow_data,mpsz_hexagon, 
-                       by =c("DESTIN_GRID" = "grid_id")) %>%
-  select(1:12)%>%
-  rename(DESTIN_SZ = SUBZONE_C,
-         DESTIN_SZ_NAME = SUBZONE_N)
+  if((content(res)$found)!=0){
+    found<-rbind(found, data.frame(content(res))[4:13])
+  }else{
+    not_found = data.frame(postcode)
+  }
   
-flow_data <- unique(flow_data)
+}
+```
+
+Because we noted some coordinate, we will manually insert the coordinates to manually fill in the gap.
+
+```{r}
+merged = merge(csv, found, by.x='postal_code', by.y= 'results.POSTAL', all = TRUE)
+write_csv(merged, file="data/aspatial/schools.csv")
+write_csv(not_found, file ="data/aspatial/not_found.csv")
+```
+
+We manually add in the missing coords and saved it as schools\_.csb
+
+```{r}
+schools <- read_csv("data/aspatial/schools_.csv")
 ```
 
 ```{r}
-flow_data1 <- flow_data %>%
-  left_join(pop,
-            by = c(ORIGIN_SZ = "SZ")) %>%
-  rename(ORIGIN_AGE7_12 = AGE7_12,
-         ORIGIN_AGE13_24 = AGE13_24,
-         ORIGIN_AGE25_64 = AGE25_64) %>%
-  select(-c(PA, SZ_NAME))
+schools <- schools %>%
+  rename(latitude = "results.LATITUDE",
+         longitude = "results.LONGITUDE") %>%
+  select(postal_code,school_name, mainlevel_code, latitude, longitude)
 ```
 
 ```{r}
-flow_data1 <- flow_data1 %>%
-  left_join(pop,
-            by = c(DESTIN_SZ = "SZ")) %>%
-  rename(DESTIN_AGE7_12 = AGE7_12,
-         DESTIN_AGE13_24 = AGE13_24,
-         DESTIN_AGE25_64 = AGE25_64) %>%
-  select(-c(PA, SZ_NAME))
+schools_sf <- st_as_sf(schools,
+                       coords = c("longitude","latitude"),
+                       crs = 4326) %>%
+  st_transform(crs=3414)
+```
+
+This helps to populate school in planning subzone:
+
+```{r}
+
+tmap_options(check.and.fix = TRUE)
+tm_shape(MPSZ) +
+  tm_polygons() +
+tm_shape(business) + 
+  tm_dots()
 ```
 
 ```{r}
-flow_data1 <- unique(flow_data1)
+BusStop_Trips3 <- left_join(BusStop_Trips1,BusStop_hexagon_sf,
+                            by =c("DESTIN_GRID"="grid_id")) %>%
+  rename(DESTIN_GEO = geometry)
+  
 ```
 
 ```{r}
-write_rds(flow_data1, "data/rds/SIM_data")
+
+BusStop_Trips3 = st_sf(geometry = BusStop_Trips3)
+```
+
+We add the various counts of the attarctiveness variables into the df:
+
+```{r}
+BusStop_Trips3$'SCHOOL_COUNT'<- lengths(
+  st_intersects(
+    BusStop_Trips3, schools_sf
+  )
+)
+
+```
+
+```{r}
+
+BusStop_Trips3$'BUSINESS_COUNT'<- lengths(
+  st_intersects(
+    BusStop_Trips3, business
+  )
+)
+```
+
+```{r}
+
+BusStop_Trips3$'ENTERTN_COUNT'<- lengths(
+  st_intersects(
+    BusStop_Trips3, entertn
+  )
+)
+```
+
+```{r}
+BusStop_Trips3$'FNB_COUNT'<- lengths(
+  st_intersects(
+    BusStop_Trips3, fnb
+  )
+)
+```
+
+```{r}
+BusStop_Trips3$'FS_COUNT'<- lengths(
+  st_intersects(
+    BusStop_Trips3, fs
+  )
+)
+```
+
+```{r}
+
+BusStop_hexagon_sf$'SCHOOL_COUNT'<- lengths(
+  st_intersects(
+    BusStop_hexagon_sf, schools_sf
+  )
+)
+```
+
+We can also extract geo data for those aged 13 to 24. And check if this is one of the contributing factor to OD flow in morning peak.
+
+```{r}
+schools_13_geo <- st_intersection(BusStop_hexagon_sf, schools_sf) %>%
+  filter(mainlevel_code != "PRIMARY") 
+```
+
+We will use this later where we map this grid id to the flow data OD of the destin grid.
+
+Now we go find the flow data TO FIND THE ATTRACTIVENESS AT THE DESTINATION!
+
+```{r}
+summary(BusStop_Trips3)
+```
+
+```{r}
+BusStop_Trips3 <- unique(BusStop_Trips3)
+```
+
+```{r}
+write_rds(BusStop_Trips3, "data/rds/SIM_data_attrc")
 ```
 
 ## Calibrating Spatial Interaction Models
@@ -737,7 +811,7 @@ write_rds(flow_data1, "data/rds/SIM_data")
 ### Visualising the dependent variable (TRIPS)
 
 ```{r}
-ggplot(data = flow_data1,
+ggplot(data = BusStop_Trips3,
        aes(x = TRIPS)) +
   geom_histogram()
 ```
@@ -747,7 +821,7 @@ Notice that the distribution is highly skewed and not resemble bell shape or als
 Next, let us visualise the relation between the dependent variable and one of the key independent variable in Spatial Interaction Model, namely distance.
 
 ```{r}
-ggplot(data = flow_data1,        
+ggplot(data = BusStop_Trips3,        
        aes(x = dist,            
            y = TRIPS)) +   
   geom_point() +   
@@ -759,7 +833,7 @@ Notice that their relationship hardly resemble linear relationship.
 On the other hand, if we plot the scatter plot by using the log transformed version of both variables, we can see that their relationship is more resemble linear relationship.
 
 ```{r}
-ggplot(data = flow_data1,        
+ggplot(data = BusStop_Trips3,        
        aes(x = log(dist),            
            y = log(TRIPS))) +   
   geom_point() +   
@@ -773,67 +847,77 @@ Since Poisson Regression is based of log and log 0 is undefined, it is important
 In the code chunk below, summary() of Base R is used to compute the summary statistics of all variables:
 
 ```{r}
-summary(flow_data1)
+summary(BusStop_Trips3)
 ```
 
-The print report above reveals that variables ORIGIN_AGE7_12, ORIGIN_AGE13_24, ORIGIN_AGE25_64,DESTIN_AGE7_12, DESTIN_AGE13_24, DESTIN_AGE25_64 consist of 0 values.
+The print report above reveals that variables consist of 0 values.
 
 ```{r}
-flow_data1$DESTIN_AGE7_12 <- ifelse(
-  flow_data1$DESTIN_AGE7_12 == 0,
-  0.99, flow_data1$DESTIN_AGE7_12)
-flow_data1$DESTIN_AGE13_24 <- ifelse(
-  flow_data1$DESTIN_AGE13_24 == 0,
-  0.99, flow_data1$DESTIN_AGE13_24)
-flow_data1$DESTIN_AGE25_64 <- ifelse(
-  flow_data1$DESTIN_AGE25_64 == 0,
-  0.99, flow_data1$DESTIN_AGE25_64)
-flow_data1$ORIGIN_AGE7_12 <- ifelse(
-  flow_data1$ORIGIN_AGE7_12 == 0,
-  0.99, flow_data1$ORIGIN_AGE7_12)
-flow_data1$ORIGIN_AGE13_24 <- ifelse(
-  flow_data1$ORIGIN_AGE13_24 == 0,
-  0.99, flow_data1$ORIGIN_AGE13_24)
-flow_data1$ORIGIN_AGE25_64 <- ifelse(
-  flow_data1$ORIGIN_AGE25_64 == 0,
-  0.99, flow_data1$ORIGIN_AGE25_64)
+BusStop_Trips3$ENTERTN_COUNT <- ifelse(
+  BusStop_Trips3$ENTERTN_COUNT == 0,
+  0.99, BusStop_Trips3$ENTERTN_COUNT)
+BusStop_Trips3$BUSINESS_COUNT <- ifelse(
+  BusStop_Trips3$BUSINESS_COUNT == 0,
+  0.99, BusStop_Trips3$BUSINESS_COUNT)
+BusStop_Trips3$SCHOOL_COUNT<- ifelse(
+  BusStop_Trips3$SCHOOL_COUNT == 0,
+  0.99, BusStop_Trips3$SCHOOL_COUNT)
+BusStop_Trips3$FNB_COUNT <- ifelse(
+  BusStop_Trips3$FNB_COUNT == 0,
+  0.99, BusStop_Trips3$FNB_COUNT)
+BusStop_Trips3$FS_COUNT <- ifelse(
+  BusStop_Trips3$FS_COUNT == 0,
+  0.99, BusStop_Trips3$FS_COUNT)
 ```
 
 ```{r}
-summary(flow_data1)
+summary(BusStop_Trips3)
 ```
 
 ### Origin (Production) constrained SIM
 
-from the summary table above we noted tehre are NA's.
+For the purpose of this exercise where we just want data within the specific hexagon areas, we will drop the NA data, and remember to remove the those INTRAZONAL
 
 ```{r}
-flow_data1[is.na(flow_data1$ORIGIN_AGE7_12),]
-
-```
-
-For the purpose of this exercise where we just want data within the specific hexagon areas, we will drop the NA data, and remember to remove the those whiten the same hexagon (dist = 0)
-
-```{r}
-flow_data1 <- flow_data1 %>%
-  drop_na() %>%
-  filter(dist >0)
+flow_data_attrc <- BusStop_Trips3 %>%
+  filter(FlowNoIntra>0) %>%
+  drop_na() 
 
 ```
 
 ```{r}
-summary(flow_data1)
+summary(flow_data_attrc)
 ```
 
 ### Unconstrained Spatial Interaction Model
 
 ```{r}
 uncSIM <- glm(formula = TRIPS ~ 
-                log(ORIGIN_AGE7_12) + 
-                log(DESTIN_AGE7_12) +
+                log(SCHOOL_COUNT) + 
+                log(BUSINESS_COUNT) +
+                log(ENTERTN_COUNT) +
+                log(FNB_COUNT) +
+                log(FS_COUNT) +
                 log(dist),
               family = poisson(link = "log"),
-              data = flow_data1,
+              data = flow_data_attrc,
+              na.action = na.exclude)
+uncSIM
+
+```
+
+The results show that FnB is weak, which makes sense as people may not go far for FNB in early morning peak.
+
+In this case i have then removed the FNB_COUNT, ENTERTN_count and rerun the following
+
+```{r}
+uncSIM <- glm(formula = TRIPS ~ 
+                log(SCHOOL_COUNT) + 
+                log(BUSINESS_COUNT) +
+                log(FS_COUNT) +
+                log(dist), 
+              family = poisson(link = "log"),
+              data = flow_data_attrc,
               na.action = na.exclude)
 uncSIM
 ```
@@ -860,11 +944,13 @@ r2_mcfadden(uncSIM)
 
 ```{r}
 orcSIM <- glm(formula = TRIPS ~ 
-                 ORIGIN_GRID +
-                 log(DESTIN_AGE7_12) +
-                 log(dist),
+                ORIGIN_GRID +
+                log(SCHOOL_COUNT) + 
+                log(BUSINESS_COUNT) +
+                log(FS_COUNT) +
+                log(dist)-1, 
               family = poisson(link = "log"),
-              data = flow_data1,
+              data = flow_data_attrc,
               na.action = na.exclude)
 summary(orcSIM)
 ```
@@ -879,11 +965,14 @@ CalcRSquared(orcSIM$data$TRIPS, orcSIM$fitted.values)
 
 ```{r}
 decSIM <- glm(formula = TRIPS ~ 
-                DESTIN_GRID + 
-                log(ORIGIN_AGE7_12) + 
-                log(dist),
+                DESTIN_GRID +                 
+                log(SCHOOL_COUNT) + 
+                log(BUSINESS_COUNT) +
+                log(FS_COUNT) +
+                log(dist) -1, 
               family = poisson(link = "log"),
-              data = flow_data1,
+              data = flow_data_attrc,
+
               na.action = na.exclude)
 summary(decSIM)
 ```
@@ -902,7 +991,7 @@ dbcSIM <- glm(formula = TRIPS ~
                 DESTIN_GRID + 
                 log(dist),
               family = poisson(link = "log"),
-              data = flow_data1,
+              data = flow_data_attrc,
               na.action = na.exclude)
 summary(dbcSIM)
 ```
@@ -929,42 +1018,46 @@ The print above reveals that all the SIMs are of similar value.
 
 **Visualising fitted**
 
-We will extract the fitted values from each model, join the values to *data_flow1* data frame, for all the models.
+We will extract the fitted values from each model, join the values to flow_data_attrc data frame, for all the models.
 
 ```{r}
 df <- as.data.frame(uncSIM$fitted.values) %>%
   round(digits = 0) 
 
-flow_data1 <- flow_data1 %>% 
+```
+
+```{r}
+
+flow_data_attrc <- flow_data_attrc %>% 
   cbind(df) %>% 
-  rename(uncTRIPS = "uncSIM$fitted.values")
+  rename(uncTRIPS = "uncSIM.fitted.values")
 ```
 
 ```{r}
 df <- as.data.frame(orcSIM$fitted.values) %>% 
   round(digits = 0) 
 
-flow_data1 <- flow_data1 %>% 
+flow_data_attrc <- flow_data_attrc %>% 
   cbind(df) %>% 
-  rename(orcTRIPS = "orcSIM$fitted.values")
+  rename(orcTRIPS = "orcSIM.fitted.values")
 ```
 
 ```{r}
 df <- as.data.frame(decSIM$fitted.values) %>% 
   round(digits = 0) 
 
-flow_data1 <- flow_data1 %>% 
+flow_data_attrc <- flow_data_attrc %>% 
   cbind(df) %>% 
-  rename(decTRIPS = "decSIM$fitted.values")
+  rename(decTRIPS = "decSIM.fitted.values")
 ```
 
 ```{r}
 df <- as.data.frame(dbcSIM$fitted.values) %>% 
   round(digits = 0) 
 
-flow_data1 <- flow_data1 %>% 
+flow_data_attrc <- flow_data_attrc %>% 
   cbind(df) %>% 
-  rename(dbcTRIPS = "dbcSIM$fitted.values")
+  rename(dbcTRIPS = "dbcSIM.fitted.values")
 ```
 
 Now we plot it:
@@ -972,25 +1065,25 @@ Now we plot it:
 ```{r}
 
 
-unc_p <- ggplot(data = flow_data1,
+unc_p <- ggplot(data = flow_data_attrc,
                 aes(x = uncTRIPS,
                     y = TRIPS)) +
   geom_point() +
   geom_smooth(method = lm)
 
-orc_p <- ggplot(data = flow_data1,
+orc_p <- ggplot(data = flow_data_attrc,
                 aes(x = orcTRIPS,
                     y = TRIPS)) +
   geom_point() +
   geom_smooth(method = lm)
 
-dec_p <- ggplot(data = flow_data1,
+dec_p <- ggplot(data = flow_data_attrc,
                 aes(x = decTRIPS,
                     y = TRIPS)) +
   geom_point() +
   geom_smooth(method = lm)
 
-dbc_p <- ggplot(data = flow_data1,
+dbc_p <- ggplot(data = flow_data_attrc,
                 aes(x = dbcTRIPS,
                     y = TRIPS)) +
   geom_point() +
@@ -1001,9 +1094,17 @@ ggarrange(unc_p, orc_p, dec_p, dbc_p,
           nrow = 2)
 ```
 
-From the above, we can draw the conclusion that there isnt much of a correlation between the age 7 to 12 population and number of trips across the hexagon areas O/D.
+From the figures above,
+
+We can see that School, Business and Financial Services are key major driver for attractive variable when it comes to a single destination constrain, and the single origin constrain.
+
+For destination constraint, It shows the movement from multiple origins to specific destinations (likely to key areas such as MRT interchange, work places, etc). This helps us to consider the constraints at the destination points, ensuring efficient planning of routes to cater to these flow during morning peak.that goods, services, or people reach these specific endpoints efficiently.
+
+For origin constraints, it shows movement from specific origins to multiple potential destinations. We can defer from my previous analysis (at the very start of this exercise) that the single origins are key ares such as mrt interchange, the woodland checkpoints, and certain key residential areas with high population density. This helps us to considers constraints primarily at the origins, ensuring that resources and routes are planned optimally from these starting points to various possible endpoints.
 
 ## Future Work - Train Station
+
+Due to time contraints I am unable to complete the whole analysis using train station / MRT, it is actually interesting to link this to find out the OD flow of weekday morning peak to the school, since the data on school information does have the respective MRT stations nearby. I have done abit of data cleaning and wraggling but couldnt havecomplete the analysis. Will look into this in the future when have some free time (after this course, sadly).
 
 ```{r}
 TrainStation <- st_read(dsn="data/geospatial",                   
@@ -1155,3 +1256,436 @@ We can see that ***sp*** is in list, no geometric column, they are segregated as
 ```         
   select(mpsz@data$SUBZONE) 
 ```
+
+# (Work done on Previous Hands-On Exercise Version)
+
+Note that these were done on the previous version of Hands-On Exercise before the updates, just FYI so I remember I did this previously.
+
+### Assembling VARIABLES
+
+Next moving on to the assemblling at least three propulsive and three attractiveness variables by using aspatial and geospatial from publicly available sources.
+
+We will look at the following:
+
+1.  Population of Age 7 to 12
+
+2.  School (Primary School) Types
+
+3.  School distinctive programme
+
+4.  HDB Information - Occupancy rate
+
+5.  MPSZ
+
+```{r}
+pop <- read_csv("data/aspatial/pop.csv")
+```
+
+We will focus on age 7 to 12 therefore will remove the other data set, and remove those zero values.
+
+```{r}
+pop <- pop %>%   
+  select(1:3) %>%   
+  filter(AGE7_12>0)   
+```
+
+This will gives us the PA, SZ, and Total number of Age7_12.
+
+Next we look into the primary school
+
+```{r}
+school <- read_csv("data/aspatial/Generalinformationofschools.csv")
+```
+
+Note we dont need so many different columns, and we only want to look at primary school:
+
+```{r}
+school <- school %>%   
+  filter(mainlevel_code == "PRIMARY") %>%   
+  select(1,3:4,10:11,19:31)
+```
+
+```{r}
+write_rds(school, "data/rds/PrimarySchool.csv") 
+```
+
+next will look into the vairous school distinctive programme
+
+```{r}
+distinctive <- read_csv("data/aspatial/SchoolDistinctiveProgrammes.csv")
+```
+
+we will just look into the alp_domain for all primary school
+
+```{r}
+table(distinctive$alp_domain)
+```
+
+Combining this to our primary school data
+
+```{r}
+primary_school <- left_join(school,distinctive) 
+```
+
+There are three school without the corresponding distinctive, this is likely due to the primary school is new, we will confirm on this later. The school database is updated Nov 2023, while the data in distinctive was updated in 2021.
+
+The few distinctive programme will serve as key variables in this dataset.
+
+Next we will go back to pop data set:
+
+```{r}
+pop <- left_join(pop, MPSZ,                   
+                 by =c("SZ" = "SUBZONE_N"))
+```
+
+We do the same to the primary school
+
+```{r}
+primary_school_MSPZ <- left_join(primary_school, MPSZ,                              by =c("dgp_code" = "PLN_AREA_N"))
+```
+
+Noted that the data got NA for those dgp_code = SENG KANG, due to discrepencies in format. Therefore we will amend this and rerun
+
+```{r}
+primary_school$dgp_code[primary_school$dgp_code == "SENG KANG"] = "SENGKANG"
+```
+
+```{r}
+primary_school_MSPZ <- left_join(primary_school, MPSZ,                              by =c("dgp_code" = "PLN_AREA_N"))%>%   
+  select(1,4:5,26:27,8,19:23,30)
+```
+
+Now we have a primary_school_MSPZ data set that show each primary school, their distinctive programme, and the associated SZ location,and the pop data set that has population aged 7 to 12 by SZ location.
+
+```{r}
+write_rds(primary_school_MSPZ, "data/rds/primary_school_MSPZ.csv") 
+```
+
+We will look into this later.
+
+### Preparing Origin and Destination Attributes
+
+### Preparing origin attribute
+
+```{r}
+pop <- read_csv("data/aspatial/pop.csv")
+```
+
+```{r}
+pop <- pop %>%   
+  left_join(MPSZ,             
+            by = c("PA" = "PLN_AREA_N",                    
+                   "SZ" = "SUBZONE_N")) %>%   
+  select(1:6) %>%   
+  rename(SZ_NAME = SZ,          
+         SZ = SUBZONE_C)
+```
+
+```{r}
+mpsz_hexagon <- st_intersection(BusStop_hexagon_sf, MPSZ) %>%   
+  drop_na()
+```
+
+```{r}
+flow_data <- left_join(BusStop_Trips1,mpsz_hexagon,                         
+                       by =c("ORIGIN_GRID" = "grid_id")) %>%   
+  rename(ORIGIN_SZ = SUBZONE_C,          
+         ORIGIN_SZ_NAME = SUBZONE_N)    
+flow_data <- unique(flow_data)
+```
+
+```{r}
+flow_data <- left_join(flow_data,mpsz_hexagon,                         
+                       by =c("DESTIN_GRID" = "grid_id")) %>%   
+  rename(DESTIN_SZ = SUBZONE_C,          
+         DESTIN_SZ_NAME = SUBZONE_N)    
+flow_data <- unique(flow_data)
+```
+
+```{r}
+flow_data1 <- flow_data %>%   
+  left_join(pop,             
+            by = c(ORIGIN_SZ = "SZ")) %>%   
+  rename(ORIGIN_AGE7_12 = AGE7_12,          
+         ORIGIN_AGE13_24 = AGE13_24,          
+         ORIGIN_AGE25_64 = AGE25_64) %>%   
+  select(-c(PA, SZ_NAME))
+```
+
+```{r}
+flow_data1 <- flow_data1 %>%   
+  left_join(pop,             
+            by = c(DESTIN_SZ = "SZ")) %>%   
+  rename(DESTIN_AGE7_12 = AGE7_12,          
+         DESTIN_AGE13_24 = AGE13_24,          
+         DESTIN_AGE25_64 = AGE25_64) %>%   
+  select(-c(PA, SZ_NAME))
+```
+
+```{r}
+flow_data1 <- unique(flow_data1)
+```
+
+```{r}
+write_rds(flow_data1, "data/rds/SIM_data")
+```
+
+## Calibrating Spatial Interaction Models
+
+### Visualising the dependent variable (TRIPS)
+
+```{r}
+ggplot(data = flow_data1,        
+       aes(x = TRIPS)) +   
+  geom_histogram()
+```
+
+Notice that the distribution is highly skewed and not resemble bell shape or also known as normal distribution.
+
+Next, let us visualise the relation between the dependent variable and one of the key independent variable in Spatial Interaction Model, namely distance.
+
+```{r}
+ggplot(data = flow_data1,                
+       aes(x = dist,                        
+           y = TRIPS)) +      
+  geom_point() +      
+  geom_smooth(method = lm)
+```
+
+Notice that their relationship hardly resemble linear relationship.
+
+On the other hand, if we plot the scatter plot by using the log transformed version of both variables, we can see that their relationship is more resemble linear relationship.
+
+```{r}
+ggplot(data = flow_data1,                
+       aes(x = log(dist),                        
+           y = log(TRIPS))) +      
+  geom_point() +      
+  geom_smooth(method = lm)
+```
+
+### Checking for variables with zero values
+
+Since Poisson Regression is based of log and log 0 is undefined, it is important for us to ensure that no 0 values in the explanatory variables.
+
+In the code chunk below, summary() of Base R is used to compute the summary statistics of all variables:
+
+```{r}
+summary(flow_data1)
+```
+
+The print report above reveals that variables ORIGIN_AGE7_12, ORIGIN_AGE13_24, ORIGIN_AGE25_64,DESTIN_AGE7_12, DESTIN_AGE13_24, DESTIN_AGE25_64 consist of 0 values.
+
+```{r}
+flow_data1$DESTIN_AGE7_12 <- ifelse(   
+  flow_data1$DESTIN_AGE7_12 == 0,   
+  0.99, flow_data1$DESTIN_AGE7_12) 
+flow_data1$DESTIN_AGE13_24 <- ifelse(   
+  flow_data1$DESTIN_AGE13_24 == 0,   
+  0.99, flow_data1$DESTIN_AGE13_24) 
+flow_data1$DESTIN_AGE25_64 <- ifelse(   
+  flow_data1$DESTIN_AGE25_64 == 0,   
+  0.99, flow_data1$DESTIN_AGE25_64) 
+flow_data1$ORIGIN_AGE7_12 <- ifelse(   
+  flow_data1$ORIGIN_AGE7_12 == 0,   
+  0.99, flow_data1$ORIGIN_AGE7_12) 
+flow_data1$ORIGIN_AGE13_24 <- ifelse(   
+  flow_data1$ORIGIN_AGE13_24 == 0,   
+  0.99, flow_data1$ORIGIN_AGE13_24) 
+flow_data1$ORIGIN_AGE25_64 <- ifelse(   
+  flow_data1$ORIGIN_AGE25_64 == 0,   
+  0.99, flow_data1$ORIGIN_AGE25_64)
+```
+
+```{r}
+summary(flow_data1)
+```
+
+### Origin (Production) constrained SIM
+
+from the summary table above we noted tehre are NA's.
+
+```{r}
+flow_data1[is.na(flow_data1$ORIGIN_AGE7_12),] 
+```
+
+For the purpose of this exercise where we just want data within the specific hexagon areas, we will drop the NA data, and remember to remove the those whiten the same hexagon (dist = 0)
+
+```{r}
+flow_data1 <- flow_data1 %>%   
+  drop_na() %>%   
+  filter(dist >0) 
+```
+
+```{r}
+summary(flow_data1)
+```
+
+### Unconstrained Spatial Interaction Model
+
+```{r}
+uncSIM <- glm(formula = TRIPS ~                  
+                log(ORIGIN_AGE7_12) +                  
+                log(DESTIN_AGE7_12) +                 
+                log(dist),               
+              family = poisson(link = "log"),               
+              data = flow_data1,               
+              na.action = na.exclude) 
+uncSIM
+```
+
+### R-squared function
+
+```{r}
+CalcRSquared <- function(observed,estimated){   
+  r <- cor(observed,estimated)   
+  R2 <- r^2   
+  R2 }
+```
+
+```{r}
+CalcRSquared(uncSIM$data$TRIPS, uncSIM$fitted.values)
+```
+
+```{r}
+r2_mcfadden(uncSIM)
+```
+
+### Origin (Production) constrained SIM
+
+```{r}
+orcSIM <- glm(formula = TRIPS ~                   
+                ORIGIN_GRID +                  
+                log(DESTIN_AGE7_12) +                  
+                log(dist),               
+            family = poisson(link = "log"),               
+            data = flow_data1,               
+            na.action = na.exclude) 
+summary(orcSIM)
+```
+
+We can examine how the constraints hold for destinations this time
+
+```{r}
+CalcRSquared(orcSIM$data$TRIPS, orcSIM$fitted.values)
+```
+
+### Destination constrained
+
+```{r}
+decSIM <- glm(formula = TRIPS ~                  
+                DESTIN_GRID +                  
+                log(ORIGIN_AGE7_12) +                  
+                log(dist),               
+              family = poisson(link = "log"),              
+              data = flow_data1,               
+              na.action = na.exclude) 
+summary(decSIM)
+```
+
+We can examine how the constraints hold for destinations this time.
+
+```{r}
+CalcRSquared(decSIM$data$TRIPS, decSIM$fitted.values)
+```
+
+### Doubly constrained
+
+```{r}
+dbcSIM <- glm(formula = TRIPS ~                  
+                ORIGIN_GRID +                  
+                DESTIN_GRID +                  
+                log(dist),               
+              family = poisson(link = "log"),               
+              data = flow_data1,               
+              na.action = na.exclude) 
+summary(dbcSIM)
+```
+
+### Model comparison
+
+Using [`compare_performance()`](https://easystats.github.io/performance/reference/compare_performance.html) of [**performance**](https://easystats.github.io/performance/) package
+
+```{r}
+model_list <- list(unconstrained=uncSIM,                    
+                   originConstrained=orcSIM,                    
+                   destinationConstrained=decSIM,                    
+                   doublyConstrained=dbcSIM)
+```
+
+```{r}
+compare_performance(model_list,                     
+                    metrics = "RMSE")
+```
+
+This compute the RMSE of all the models in *model_list* file.
+
+The print above reveals that all the SIMs are of similar value.
+
+**Visualising fitted**
+
+We will extract the fitted values from each model, join the values to *data_flow1* data frame, for all the models.
+
+```{r}
+df <- as.data.frame(uncSIM$fitted.values) %>%   
+  round(digits = 0)   
+flow_data1 <- flow_data1 %>%    
+  cbind(df) %>%    
+  rename(uncTRIPS = "uncSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(orcSIM$fitted.values) %>%    
+  round(digits = 0)   
+flow_data1 <- flow_data1 %>%    
+  cbind(df) %>%    
+  rename(orcTRIPS = "orcSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(decSIM$fitted.values) %>%    
+  round(digits = 0)   
+flow_data1 <- flow_data1 %>%    
+  cbind(df) %>%    
+  rename(decTRIPS = "decSIM$fitted.values")
+```
+
+```{r}
+df <- as.data.frame(dbcSIM$fitted.values) %>%    
+  round(digits = 0)   
+flow_data1 <- flow_data1 %>%    
+  cbind(df) %>%    
+  rename(dbcTRIPS = "dbcSIM$fitted.values")
+```
+
+Now we plot it:
+
+```{r}
+unc_p <- ggplot(data = flow_data1,                 
+                aes(x = uncTRIPS,                     
+                    y = TRIPS)) +   
+  geom_point() +   geom_smooth(method = lm)  
+
+orc_p <- ggplot(data = flow_data1,                 
+                aes(x = orcTRIPS,                     
+                    y = TRIPS)) +   
+  geom_point() +   
+  geom_smooth(method = lm)  
+
+dec_p <- ggplot(data = flow_data1,                 
+                aes(x = decTRIPS,                     
+                    y = TRIPS)) +   
+  geom_point() +   
+  geom_smooth(method = lm)  
+
+dbc_p <- ggplot(data = flow_data1,                 
+                aes(x = dbcTRIPS,                     
+                    y = TRIPS)) +   
+  geom_point() +   geom_smooth(method = lm)  
+
+ggarrange(unc_p, orc_p, dec_p, dbc_p,           
+          ncol = 2,           
+          nrow = 2)
+```
+
+From the above, we can draw the conclusion that there isnt much of a correlation between the age 7 to 12 population and number of trips across the hexagon areas O/D.
