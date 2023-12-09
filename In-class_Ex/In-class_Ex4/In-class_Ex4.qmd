@@ -1,0 +1,163 @@
+---
+title: "In-class Exercise 4"
+---
+
+```{r}
+pacman:: p_load(tidyverse, sf, httr, tmap)
+```
+
+OneMap API - portal by SLA, a webservice,
+
+Geographical Coordinate Systems
+
+```{r}
+
+#| eval: false
+#| message: false
+
+
+url<- "https://www.onemap.gov.sg/api/common/elastic/search"
+
+csv <- read_csv("data/aspatial/GeneralInformationofSchools.csv")
+postcodes <- csv$'postal_code'
+
+found <- data.frame()
+not_found <- data.frame()
+
+for (postcode in postcodes){
+  query<- list("searchVal" = postcode, "returnGeom"='Y', 'getAddrDetails'='Y',"pagenum"='1')
+  res <-GET(url, query=query)
+  
+  if((content(res)$found)!=0){
+    found<-rbind(found, data.frame(content(res))[4:13])
+  }else{
+    not_found = data.frame(postcode)
+  }
+  
+}
+```
+
+```{r}
+merged = merge(csv, found, by.x='postal_code', by.y= 'results.POSTAL', all = TRUE)
+write_csv(merged, file="data/aspatial/schools.csv")
+write_csv(not_found, file ="data/aspatial/not_found.csv")
+```
+
+Hands on
+
+```{r}
+schools <- read_csv("data/aspatial/schools_.csv")
+schools <- schools %>%
+  rename(latitude = "results.LATITUDE",
+         longitude = "results.LONGITUDE") %>%
+  select(postal_code,school_name,latitude, longitude)
+```
+
+Convert into a sf tibble data.frame
+
+```{r}
+schools_sf <- st_as_sf(schools,
+                       coords = c("longitude","latitude"),
+                       crs = 4326) %>%
+  st_transform(crs=3414)
+```
+
+point in polygon count, both the data must be in same projected system (WSG84 /SVY21), same spatial format.
+
+```{r}
+mpsz <- st_read(dsn="data/geospatial",                   
+                layer="MPSZ-2019")%>%   
+  st_transform(crs = 3414)
+```
+
+```{r}
+mpsz$'SCHOOL_COUNT'<- lengths(
+  st_intersects(
+    mpsz, schools_sf
+  )
+)
+```
+
+```{r}
+business_sf <- st_read(dsn="data/geospatial",
+                       layer = "Business")
+```
+
+```{r}
+mpsz$'BUSINESS_COUNT'<- lengths(
+  st_intersects(
+    mpsz, business_sf
+  )
+)
+```
+
+```{r}
+
+tmap_options(check.and.fix = TRUE)
+tm_shape(mpsz) +
+  tm_polygons() +
+  tm_shape(business_sf) +
+  tm_dots()
+```
+
+```{r}
+summary(mpsz$SCHOOL_COUNT)
+```
+
+```{r}
+#flow_data <- flow_data %>%
+#left_join(mpsz_tidy,
+#by c=("DESTIN_SZ"="SUBZONE_c"))
+```
+
+```{r}
+pacman::p_load(tmap,sf,performance,AER,MASS<ggubr,tidyverse)
+```
+
+```{r}
+flow_data <- read_rds("data/rds/flow_data_tidy.rds")
+```
+
+```{r}
+flow_data$FlowNoIntra <- ifelse(
+  flow_data$ORIGIN_SZ == flow_data$DESTIN_SZ,
+  0, flow_data$MORNING_PEAK)
+flow_data$offset <- ifelse(
+  flow_data$ORIGIN_SZ == flow_data$DESTIN_SZ,
+  0.000001,1)
+
+```
+
+```{r}
+inter_zonal_flow <- flow_data %>%
+  filter(FlowNoIntra>0)
+```
+
+```{r}
+inter_zonal_flow <- inter_zonal_flow %>%
+  rename(TRIPS = MORNING_PEAK,
+         DIST = dist)
+```
+
+ORIGIN CONSTRAINTS
+
+```{r}
+orcSIM_Poisson <- glm(formula = TRIPS~
+                        ORIGIN_SZ +
+                        log(RETAIL_COUNT) +
+                        log(SCHOOL_COUNT) +
+                        log(DIST) -1, #this removes away the intersect since Ori constarint and destination constrain no need intersect
+                      family = poisson(link = 'log'),
+                      data = inter_zonal_flow,
+                      na.action = na.exclude)
+
+summary(orcSIM_Poisson)
+```
+
+LOG(DIST) MUST BE NEGATIVE COZ IF FAR PEOPLE WONT GO!!!
+
+ON THE GRAPHS,
+
+THE CLOSER FITS means it is more realted
+
+there is also some outlier
